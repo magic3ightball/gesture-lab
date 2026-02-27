@@ -560,8 +560,9 @@ const SONG_DURATION_MS = _t * BEAT_MS;
 const SONG_TOTAL       = SONG_NOTES.length;
 
 // ── Game constants ────────────────────────────────────────────────────────────
-const HIT_X      = 140;   // px — hit zone x position
-const LOOK_AHEAD = 2500;  // ms — how early notes appear on screen
+const HIT_X           = 140;   // px — hit zone x position
+const LOOK_AHEAD      = 2500;  // ms — how early notes appear on screen
+const COUNTDOWN_MS    = 4000;  // ms — total countdown duration (3-2-1-GO)
 const WINDOW_MS  = 280;   // ±ms hit detection window around note.timeStart
 const NOTE_H     = 18;    // px — note bar height
 
@@ -588,7 +589,8 @@ function startCountdown() {
   endScreenEl.style.display = 'none';
   gameBtnEl.style.display   = 'none';
   scoreUiEl.style.display   = 'none';
-  GAME.state = 'countdown';
+  GAME.state     = 'countdown';
+  GAME.startTime = Date.now() + COUNTDOWN_MS - LOOK_AHEAD;
 
   for (const n of SONG_NOTES) { n.result = null; n.scored = false; }
   GAME.tally = { great: 0, fair: 0, bad: 0, miss: 0 };
@@ -609,7 +611,6 @@ function startCountdown() {
       clearInterval(iv);
       countdownEl.style.display = 'none';
       GAME.state     = 'playing';
-      GAME.startTime = Date.now() - LOOK_AHEAD;
       pauseBtnEl.textContent = '⏸\u00a0 PAUSE';
       scoreUiEl.style.display   = 'block';
       gameCtrlEl.style.display  = 'flex';
@@ -680,7 +681,7 @@ exitBtnEl.addEventListener('click',  exitGame);
 
 // ── Note rendering + hit detection ───────────────────────────────────────────
 function processGame(now) {
-  if (GAME.state !== 'playing' && GAME.state !== 'paused') return;
+  if (GAME.state !== 'playing' && GAME.state !== 'paused' && GAME.state !== 'countdown') return;
   if (GAME.state === 'paused') return;
 
   const elapsed     = now - GAME.startTime;
@@ -693,8 +694,9 @@ function processGame(now) {
     return;
   }
 
-  // ── Hit detection ──
-  for (const note of SONG_NOTES) {
+  // ── Hit detection (playing only) ──
+  if (GAME.state !== 'playing') { /* skip to drawing */ }
+  else for (const note of SONG_NOTES) {
     if (note.scored) continue;
     const timeUntil = note.timeStart - elapsed;
 
