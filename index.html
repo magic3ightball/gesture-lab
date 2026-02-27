@@ -83,6 +83,21 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   text-align: right; letter-spacing: 1px;
 }
 
+/* ── Game: in-game controls (pause + exit) ── */
+#game-controls {
+  display: none;
+  position: absolute; top: 14px; right: 40px;
+  display: none; gap: 8px; align-items: center;
+}
+.gc-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a; color: #555;
+  font-family: monospace; font-size: 10px; letter-spacing: 2px;
+  padding: 6px 14px; cursor: pointer; border-radius: 4px;
+  transition: border-color 0.2s, color 0.2s;
+}
+.gc-btn:hover { border-color: #888; color: #ccc; }
+
 /* ── Game: play button ── */
 #game-btn {
   position: absolute; bottom: 148px; left: 50%;
@@ -137,6 +152,13 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   transition: border-color 0.2s, color 0.2s;
 }
 #end-again:hover { border-color: #888; color: #ccc; }
+#end-exit {
+  background: transparent; border: 1px solid #2a2a2a; color: #555;
+  font-family: monospace; font-size: 10px; letter-spacing: 3px;
+  padding: 10px 28px; cursor: pointer; border-radius: 4px;
+  transition: border-color 0.2s, color 0.2s;
+}
+#end-exit:hover { border-color: #888; color: #ccc; }
 
 /* ── Loading ── */
 #loading {
@@ -193,6 +215,11 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   <button id="game-btn">▶&nbsp;&nbsp;TWINKLE TWINKLE</button>
   <div id="countdown"></div>
 
+  <div id="game-controls">
+    <button class="gc-btn" id="pause-btn">⏸&nbsp; PAUSE</button>
+    <button class="gc-btn" id="exit-btn">✕&nbsp; EXIT</button>
+  </div>
+
   <div id="score-ui">
     <span class="sg">GREAT <b id="s-great">0</b></span> &nbsp;·&nbsp;
     <span class="sf">FAIR <b id="s-fair">0</b></span> &nbsp;·&nbsp;
@@ -205,7 +232,10 @@ body { background: #000; overflow: hidden; font-family: monospace; }
     <div id="end-score">—</div>
     <div id="end-grade">—</div>
     <div id="end-detail"></div>
-    <button id="end-again">▶&nbsp;&nbsp;PLAY AGAIN</button>
+    <div style="display:flex; gap:12px; margin-top:20px">
+      <button id="end-again">▶&nbsp;&nbsp;PLAY AGAIN</button>
+      <button id="end-exit">✕&nbsp;&nbsp;EXIT</button>
+    </div>
   </div>
 </div>
 
@@ -237,6 +267,10 @@ const endScoreEl   = document.getElementById('end-score');
 const endGradeEl   = document.getElementById('end-grade');
 const endDetailEl  = document.getElementById('end-detail');
 const endAgainEl   = document.getElementById('end-again');
+const endExitEl    = document.getElementById('end-exit');
+const gameCtrlEl   = document.getElementById('game-controls');
+const pauseBtnEl   = document.getElementById('pause-btn');
+const exitBtnEl    = document.getElementById('exit-btn');
 const sGreat       = document.getElementById('s-great');
 const sFair        = document.getElementById('s-fair');
 const sBad         = document.getElementById('s-bad');
@@ -541,8 +575,9 @@ const RATING_COLORS = {
 
 // ── Game state ────────────────────────────────────────────────────────────────
 const GAME = {
-  state:     'idle',   // idle | countdown | playing | done
+  state:     'idle',   // idle | countdown | playing | paused | done
   startTime: 0,
+  pausedAt:  0,
   tally:     { great: 0, fair: 0, bad: 0, miss: 0 },
 };
 
@@ -575,14 +610,40 @@ function startCountdown() {
       countdownEl.style.display = 'none';
       GAME.state     = 'playing';
       GAME.startTime = Date.now() - LOOK_AHEAD;
-      scoreUiEl.style.display = 'block';
+      pauseBtnEl.textContent = '⏸\u00a0 PAUSE';
+      scoreUiEl.style.display   = 'block';
+      gameCtrlEl.style.display  = 'flex';
     }
   }, 1000);
 }
 
+function exitGame() {
+  GAME.state = 'idle';
+  scoreUiEl.style.display    = 'none';
+  endScreenEl.style.display  = 'none';
+  gameCtrlEl.style.display   = 'none';
+  gameBtnEl.style.display    = 'block';
+  for (const n of SONG_NOTES) { n.result = null; n.scored = false; }
+  GAME.tally = { great: 0, fair: 0, bad: 0, miss: 0 };
+  ratingPops.length = 0;
+}
+
+function togglePause() {
+  if (GAME.state === 'playing') {
+    GAME.state    = 'paused';
+    GAME.pausedAt = Date.now();
+    pauseBtnEl.textContent = '▶\u00a0 RESUME';
+  } else if (GAME.state === 'paused') {
+    GAME.startTime += Date.now() - GAME.pausedAt;  // shift timeline forward
+    GAME.state      = 'playing';
+    pauseBtnEl.textContent = '⏸\u00a0 PAUSE';
+  }
+}
+
 function finishGame() {
   GAME.state = 'done';
-  scoreUiEl.style.display = 'none';
+  scoreUiEl.style.display  = 'none';
+  gameCtrlEl.style.display = 'none';
 
   const { great, fair, bad, miss } = GAME.tally;
   const hits = great + fair + bad;
@@ -613,10 +674,14 @@ function updateScoreUI() {
 
 gameBtnEl.addEventListener('click',  startCountdown);
 endAgainEl.addEventListener('click', startCountdown);
+endExitEl.addEventListener('click',  exitGame);
+pauseBtnEl.addEventListener('click', togglePause);
+exitBtnEl.addEventListener('click',  exitGame);
 
 // ── Note rendering + hit detection ───────────────────────────────────────────
 function processGame(now) {
-  if (GAME.state !== 'playing') return;
+  if (GAME.state !== 'playing' && GAME.state !== 'paused') return;
+  if (GAME.state === 'paused') return;
 
   const elapsed     = now - GAME.startTime;
   const scrollSpeed = (canvas.width - HIT_X) / LOOK_AHEAD;  // px/ms
