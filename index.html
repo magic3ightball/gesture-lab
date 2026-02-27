@@ -574,7 +574,7 @@ function startCountdown() {
       clearInterval(iv);
       countdownEl.style.display = 'none';
       GAME.state     = 'playing';
-      GAME.startTime = Date.now();
+      GAME.startTime = Date.now() - LOOK_AHEAD;
       scoreUiEl.style.display = 'block';
     }
   }, 1000);
