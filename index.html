@@ -845,18 +845,6 @@ function loop() {
     const fResult = faceLandmarker.detectForVideo(video, now);
     if (fResult.faceLandmarks.length > 0) {
       const lms = fResult.faceLandmarks[0];
-      ctx.save();
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_TESSELATION,
-        { color: 'rgba(255,255,255,0.03)', lineWidth: 1 });
-      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
-        { color: 'rgba(80,220,180,0.3)', lineWidth: 1 });
-      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
-        { color: 'rgba(80,220,180,0.3)', lineWidth: 1 });
-      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_LIPS,
-        { color: 'rgba(255,80,80,0.3)', lineWidth: 1 });
-      ctx.restore();
 
       const blendshapes = {};
       if (fResult.faceBlendshapes.length > 0)
