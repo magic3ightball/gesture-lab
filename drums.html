@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gesture Drum Pad</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0a; overflow: hidden; font-family: monospace; color: #fff; }
+
+#scene { position: relative; width: 100vw; height: 100vh; }
+#webcam {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  opacity: 0.45;
+}
+#canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Pad grid ── */
+#pads {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 10px;
+  padding: 14px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.pad {
+  border-radius: 14px;
+  border: 1px solid #1c1c1c;
+  background: rgba(12, 12, 12, 0.78);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.04s, border-color 0.04s, box-shadow 0.04s;
+}
+
+.pad-emoji { font-size: clamp(24px, 4vw, 42px); line-height: 1; }
+.pad-name  { font-size: 9px; letter-spacing: 2.5px; color: #444; }
+
+/* height-indicator bar at bottom of each pad */
+.pad-hbar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: transparent;
+}
+.pad-hbar-fill {
+  height: 100%;
+  width: 50%;
+  border-radius: 0 2px 0 0;
+  opacity: 0.7;
+  transition: width 0.12s;
+}
+
+/* empty/placeholder pad */
+.pad.mute {
+  opacity: 0.12;
+  border-color: #111;
+}
+
+/* ── Stats bar ── */
+#stats {
+  position: absolute;
+  bottom: 14px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px; letter-spacing: 2px; color: #2e2e2e;
+  z-index: 4;
+  white-space: nowrap;
+}
+#stats b { color: #444; }
+
+/* ── Gesture label ── */
+#glabel {
+  position: absolute;
+  top: 14px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px; letter-spacing: 2px; color: #333;
+  z-index: 4;
+  white-space: nowrap;
+}
+
+/* ── Loading ── */
+#loading {
+  position: fixed; inset: 0; background: #0a0a0a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 100;
+}
+#loading-title  { font-size: 22px; letter-spacing: 6px; }
+#loading-status { font-size: 11px; color: #555; }
+#loading-bar-bg { width: 300px; height: 2px; background: #1a1a1a; }
+#loading-bar    { height: 100%; background: #0ff; width: 0%; transition: width 0.3s; }
+#loading-hint   { font-size: 9px; color: #2a2a2a; text-align: center; max-width: 280px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">DRUM PAD</div>
+  <div id="loading-status">Loading gesture model...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+  <div id="loading-hint">
+    One gesture → one drum · Hand height → tone<br>
+    Higher hand = punchy · Lower hand = deep
+  </div>
+</div>
+
+<div id="scene">
+  <video id="webcam" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="pads">
+    <!-- Row 1 -->
+    <div class="pad" id="pad-kick">
+      <div class="pad-emoji">✊</div>
+      <div class="pad-name">KICK</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-kick"    style="background:#ff3344"></div></div>
+    </div>
+    <div class="pad" id="pad-snare">
+      <div class="pad-emoji">🖐</div>
+      <div class="pad-name">SNARE</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-snare"   style="background:#ffaa00"></div></div>
+    </div>
+    <div class="pad" id="pad-hihat">
+      <div class="pad-emoji">✌️</div>
+      <div class="pad-name">HI-HAT</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-hihat"   style="background:#00ccff"></div></div>
+    </div>
+    <div class="pad" id="pad-openhat">
+      <div class="pad-emoji">☝️</div>
+      <div class="pad-name">OPEN HAT</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-openhat" style="background:#44ffcc"></div></div>
+    </div>
+
+    <!-- Row 2 -->
+    <div class="pad" id="pad-clap">
+      <div class="pad-emoji">👍</div>
+      <div class="pad-name">CLAP</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-clap"    style="background:#ff66ff"></div></div>
+    </div>
+    <div class="pad" id="pad-tom">
+      <div class="pad-emoji">👎</div>
+      <div class="pad-name">LOW TOM</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-tom"     style="background:#ff8844"></div></div>
+    </div>
+    <div class="pad" id="pad-crash">
+      <div class="pad-emoji">🤟</div>
+      <div class="pad-name">CRASH</div>
+      <div class="pad-hbar"><div class="pad-hbar-fill" id="hf-crash"   style="background:#aaff44"></div></div>
+    </div>
+    <div class="pad mute">
+      <div class="pad-emoji" style="font-size:18px; opacity:0.3">—</div>
+    </div>
+  </div>
+
+  <div id="glabel">—</div>
+  <div id="stats">HITS: <b id="hit-count">0</b></div>
+</div>
+
+<script type="module">
+import {
+  GestureRecognizer, FilesetResolver, DrawingUtils,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+
+// ── DOM ───────────────────────────────────────────────────────────────────
+const video      = document.getElementById('webcam');
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d');
+const loadEl     = document.getElementById('loading');
+const loadBar    = document.getElementById('loading-bar');
+const loadStatus = document.getElementById('loading-status');
+const glabel     = document.getElementById('glabel');
+const hitCountEl = document.getElementById('hit-count');
+
+// ── Pad map ────────────────────────────────────────────────────────────────
+//   gesture name → { id, label, color }
+const PADS = {
+  Closed_Fist:  { id: 'kick',    label: 'KICK',     color: '#ff3344' },
+  Open_Palm:    { id: 'snare',   label: 'SNARE',    color: '#ffaa00' },
+  Victory:      { id: 'hihat',   label: 'HI-HAT',   color: '#00ccff' },
+  Pointing_Up:  { id: 'openhat', label: 'OPEN HAT', color: '#44ffcc' },
+  Thumb_Up:     { id: 'clap',    label: 'CLAP',     color: '#ff66ff' },
+  Thumb_Down:   { id: 'tom',     label: 'LOW TOM',  color: '#ff8844' },
+  ILoveYou:     { id: 'crash',   label: 'CRASH',    color: '#aaff44' },
+};
+
+// ── Web Audio ─────────────────────────────────────────────────────────────
+let ac = null;
+function audio() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+
+// brightness: 0 (hand low/deep) → 1 (hand high/punchy)
+// derived as (1 - wrist_y_normalized)
+
+function playKick(b) {
+  const a = audio(), t = a.currentTime;
+  const g = a.createGain();
+  g.connect(a.destination);
+  g.gain.setValueAtTime(1.6, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+
+  const osc = a.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(100 + b * 80, t);          // 100–180 Hz start
+  osc.frequency.exponentialRampToValueAtTime(38, t + 0.28);
+  osc.connect(g); osc.start(t); osc.stop(t + 0.5);
+
+  // click transient
+  const cg = a.createGain();
+  cg.connect(a.destination);
+  cg.gain.setValueAtTime(0.6, t);
+  cg.gain.exponentialRampToValueAtTime(0.001, t + 0.018);
+  const co = a.createOscillator();
+  co.frequency.value = 600 + b * 500;
+  co.connect(cg); co.start(t); co.stop(t + 0.02);
+}
+
+function playSnare(b) {
+  const a = audio(), t = a.currentTime;
+
+  // noise layer
+  const len  = Math.floor(a.sampleRate * 0.22);
+  const buf  = a.createBuffer(1, len, a.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+  const src = a.createBufferSource();
+  src.buffer = buf;
+
+  const bp = a.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 1200 + b * 2200;  // brighter hand → crispier
+  bp.Q.value = 0.7;
+
+  const ng = a.createGain();
+  ng.gain.setValueAtTime(0.9, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  src.connect(bp); bp.connect(ng); ng.connect(a.destination);
+  src.start(t); src.stop(t + 0.23);
+
+  // body tone
+  const og = a.createGain();
+  og.gain.setValueAtTime(0.5, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  const o = a.createOscillator();
+  o.type = 'triangle';
+  o.frequency.value = 180 + b * 70;
+  o.connect(og); og.connect(a.destination);
+  o.start(t); o.stop(t + 0.1);
+}
+
+function playHiHat(b) {
+  const a = audio(), t = a.currentTime;
+  const len  = Math.floor(a.sampleRate * 0.06);
+  const buf  = a.createBuffer(1, len, a.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+  const src = a.createBufferSource();
+  src.buffer = buf;
+
+  const hp = a.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 6000 + b * 4000;
+
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.55, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
+  src.connect(hp); hp.connect(g); g.connect(a.destination);
+  src.start(t); src.stop(t + 0.07);
+}
+
+function playOpenHat(b) {
+  const a = audio(), t = a.currentTime;
+  const decay = 0.28 + b * 0.22;
+  const len   = Math.floor(a.sampleRate * (decay + 0.05));
+  const buf   = a.createBuffer(1, len, a.sampleRate);
+  const data  = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+  const src = a.createBufferSource();
+  src.buffer = buf;
+
+  const hp = a.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 5500 + b * 3000;
+
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.5, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  src.connect(hp); hp.connect(g); g.connect(a.destination);
+  src.start(t); src.stop(t + decay + 0.05);
+}
+
+function playClap(b) {
+  const a = audio(), t = a.currentTime;
+  // Three noise bursts stacked close together = clap texture
+  [0, 0.012, 0.024].forEach(offset => {
+    const len  = Math.floor(a.sampleRate * 0.11);
+    const buf  = a.createBuffer(1, len, a.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+    const src = a.createBufferSource();
+    src.buffer = buf;
+
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900 + b * 1800;
+    bp.Q.value = 0.5;
+
+    const s = t + offset;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.55, s);
+    g.gain.exponentialRampToValueAtTime(0.001, s + 0.1);
+    src.connect(bp); bp.connect(g); g.connect(a.destination);
+    src.start(s); src.stop(s + 0.13);
+  });
+}
+
+function playTom(b) {
+  const a = audio(), t = a.currentTime;
+  const freq = 60 + b * 55;   // 60–115 Hz, lower than kick
+  const g = a.createGain();
+  g.gain.setValueAtTime(1.3, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+  g.connect(a.destination);
+
+  const o = a.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq * 1.4, t);
+  o.frequency.exponentialRampToValueAtTime(freq, t + 0.12);
+  o.connect(g); o.start(t); o.stop(t + 0.6);
+
+  // soft noise thud
+  const len  = Math.floor(a.sampleRate * 0.04);
+  const buf  = a.createBuffer(1, len, a.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const ng = a.createGain();
+  ng.gain.setValueAtTime(0.25, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  src.connect(ng); ng.connect(a.destination);
+  src.start(t); src.stop(t + 0.05);
+}
+
+function playCrash(b) {
+  const a = audio(), t = a.currentTime;
+  const decay = 1.4 + b * 0.6;
+  const len   = Math.floor(a.sampleRate * (decay + 0.1));
+  const buf   = a.createBuffer(1, len, a.sampleRate);
+  const data  = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const hp = a.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 3500 + b * 2500;
+
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.7, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  src.connect(hp); hp.connect(g); g.connect(a.destination);
+  src.start(t); src.stop(t + decay + 0.1);
+
+  // shimmer
+  const sg = a.createGain();
+  sg.gain.setValueAtTime(0.15, t);
+  sg.gain.exponentialRampToValueAtTime(0.001, t + decay * 0.6);
+  sg.connect(a.destination);
+  const so = a.createOscillator();
+  so.type = 'sawtooth';
+  so.frequency.value = 380 + b * 240;
+  so.connect(sg); so.start(t); so.stop(t + decay * 0.6);
+}
+
+const PLAY_FN = {
+  Closed_Fist:  playKick,
+  Open_Palm:    playSnare,
+  Victory:      playHiHat,
+  Pointing_Up:  playOpenHat,
+  Thumb_Up:     playClap,
+  Thumb_Down:   playTom,
+  ILoveYou:     playCrash,
+};
+
+// ── Hit logic ─────────────────────────────────────────────────────────────
+let totalHits = 0;
+const cooldown = {};         // gesture → last-hit ms
+const COOLDOWN_MS = 240;     // min gap between repeated hits of same gesture
+
+function hit(gestureName, wristY) {
+  const now = Date.now();
+  if (cooldown[gestureName] && now - cooldown[gestureName] < COOLDOWN_MS) return;
+  cooldown[gestureName] = now;
+
+  const pad = PADS[gestureName];
+  if (!pad) return;
+
+  const brightness = 1 - wristY;  // top=1 (punchy), bottom=0 (deep)
+
+  PLAY_FN[gestureName]?.(brightness);
+
+  hitCountEl.textContent = ++totalHits;
+
+  // Flash the pad
+  const el = document.getElementById(`pad-${pad.id}`);
+  if (!el) return;
+  el.style.background      = pad.color + '2a';
+  el.style.borderColor     = pad.color + 'cc';
+  el.style.boxShadow       = `0 0 32px ${pad.color}55, inset 0 0 16px ${pad.color}18`;
+
+  // Height bar — shows how punchy/deep this hit was
+  const hf = document.getElementById(`hf-${pad.id}`);
+  if (hf) hf.style.width = `${brightness * 100}%`;
+
+  setTimeout(() => {
+    el.style.background  = '';
+    el.style.borderColor = '';
+    el.style.boxShadow   = '';
+  }, 160);
+}
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────
+let gestureRecognizer = null;
+let drawingUtils      = null;
+
+async function loadModel() {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  loadBar.style.width = '40%';
+  loadStatus.textContent = 'Loading gesture recognizer...';
+
+  gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numHands: 2,
+  });
+  loadBar.style.width = '90%';
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────
+function loop() {
+  canvas.width  = video.clientWidth;
+  canvas.height = video.clientHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (video.readyState >= 3) {
+    const result = gestureRecognizer.recognizeForVideo(video, Date.now());
+    const labelParts = [];
+
+    for (let h = 0; h < result.landmarks.length; h++) {
+      const lms     = result.landmarks[h];
+      const gesture = result.gestures[h]?.[0];
+      const gName   = gesture?.categoryName;
+      const gScore  = gesture?.score ?? 0;
+
+      // ── Draw skeleton (mirrored) ──
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      drawingUtils.drawConnectors(lms, GestureRecognizer.HAND_CONNECTIONS,
+        { color: 'rgba(255,255,255,0.15)', lineWidth: 2 });
+      drawingUtils.drawLandmarks(lms,
+        { color: 'rgba(255,255,255,0.3)', lineWidth: 1, radius: 3 });
+      ctx.restore();
+
+      const wrist = lms[0];
+
+      // ── Highlight index fingertip ──
+      const tip = lms[8];
+      const tx  = (1 - tip.x) * canvas.width;
+      const ty  =      tip.y  * canvas.height;
+      const padInfo = (gName && gScore > 0.7) ? PADS[gName] : null;
+      const col = padInfo ? padInfo.color : '#ffffff';
+
+      ctx.beginPath();
+      ctx.arc(tx, ty, 9, 0, Math.PI * 2);
+      ctx.fillStyle = col + 'bb';
+      ctx.fill();
+
+      // ── Fire drum hit ──
+      if (gName && gName !== 'None' && gScore > 0.7) {
+        hit(gName, wrist.y);
+
+        const px = (1 - wrist.x) * canvas.width;
+        const py =      wrist.y  * canvas.height;
+
+        // Draw gesture label near wrist
+        ctx.font      = 'bold 11px monospace';
+        ctx.fillStyle = col;
+        ctx.fillText((PADS[gName]?.label ?? gName), px - 28, py + 36);
+
+        labelParts.push(`${PADS[gName]?.label ?? gName} ${(gScore * 100).toFixed(0)}%`);
+      }
+    }
+
+    glabel.textContent = labelParts.length ? labelParts.join('  ·  ') : '—';
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    await loadModel();
+    loadStatus.textContent = 'Requesting camera...';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    drawingUtils = new DrawingUtils(ctx);
+    loadBar.style.width = '100%';
+    loadEl.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    loadStatus.textContent = `Error: ${err.message}`;
+    loadStatus.style.color = '#f44';
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>

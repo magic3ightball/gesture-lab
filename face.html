@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Face Lab</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0a; overflow: hidden; font-family: monospace; color: #fff; }
+
+#scene { position: relative; width: 100vw; height: 100vh; }
+#webcam { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); opacity: 0.55; }
+#canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* ── Expression panel ── */
+#panel {
+  position: absolute;
+  top: 16px; right: 16px;
+  width: 210px;
+  background: rgba(0,0,0,0.72);
+  border: 1px solid #1e1e1e;
+  border-radius: 10px;
+  padding: 14px;
+  backdrop-filter: blur(4px);
+}
+#panel-title { font-size: 9px; letter-spacing: 2px; color: #555; margin-bottom: 10px; }
+
+.expr-row { margin-bottom: 8px; }
+.expr-label { font-size: 9px; color: #777; letter-spacing: 1px; margin-bottom: 3px; display: flex; justify-content: space-between; }
+.expr-label span { color: #0ff; }
+.expr-track { height: 5px; background: #1a1a1a; border-radius: 3px; }
+.expr-fill  { height: 100%; border-radius: 3px; width: 0%; transition: width 0.08s; }
+
+/* ── Loading ── */
+#loading {
+  position: fixed; inset: 0; background: #0a0a0a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 100;
+}
+#loading-title  { font-size: 22px; letter-spacing: 6px; }
+#loading-status { font-size: 11px; color: #555; }
+#loading-bar-bg { width: 300px; height: 2px; background: #1a1a1a; }
+#loading-bar    { height: 100%; background: #0ff; width: 0%; transition: width 0.3s; }
+#loading-hint   { font-size: 9px; color: #2a2a2a; text-align: center; max-width: 280px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">FACE LAB</div>
+  <div id="loading-status">Loading face model...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+  <div id="loading-hint">Face landmarker — 468 points + expression scores.<br>No hand tracking in this file.</div>
+</div>
+
+<div id="scene">
+  <video id="webcam" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <!-- Live expression panel -->
+  <div id="panel">
+    <div id="panel-title">EXPRESSIONS</div>
+
+    <div class="expr-row" id="row-smileL">
+      <div class="expr-label">SMILE LEFT <span id="val-smileL">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-smileL" style="background:#ff6688"></div></div>
+    </div>
+    <div class="expr-row" id="row-smileR">
+      <div class="expr-label">SMILE RIGHT <span id="val-smileR">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-smileR" style="background:#ff6688"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">BLINK LEFT <span id="val-blinkL">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-blinkL" style="background:#00ccff"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">BLINK RIGHT <span id="val-blinkR">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-blinkR" style="background:#00ccff"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">JAW OPEN <span id="val-jaw">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-jaw" style="background:#ffcc00"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">BROW DOWN L <span id="val-browDL">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-browDL" style="background:#aa66ff"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">BROW DOWN R <span id="val-browDR">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-browDR" style="background:#aa66ff"></div></div>
+    </div>
+    <div class="expr-row">
+      <div class="expr-label">CHEEK PUFF <span id="val-puff">0.00</span></div>
+      <div class="expr-track"><div class="expr-fill" id="bar-puff" style="background:#ff9944"></div></div>
+    </div>
+  </div>
+
+  <!--
+    ╔════════════════════════════════════════════╗
+    ║  ADD YOUR OWN HTML ELEMENTS HERE           ║
+    ╚════════════════════════════════════════════╝
+  -->
+</div>
+
+<script type="module">
+import {
+  FaceLandmarker, FilesetResolver, DrawingUtils,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const video      = document.getElementById('webcam');
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d');
+const loadEl     = document.getElementById('loading');
+const loadBar    = document.getElementById('loading-bar');
+const loadStatus = document.getElementById('loading-status');
+
+// Helper to update the expression panel
+function setBar(id, score) {
+  document.getElementById(`bar-${id}`).style.width = `${score * 100}%`;
+  document.getElementById(`val-${id}`).textContent  = score.toFixed(2);
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//
+//   YOUR CODE — edit this function to build your app.
+//   Called every frame when a face is visible.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── onFaceUpdate ──────────────────────────────────────────────────────────────
+//
+//   landmarks   → 468 face points [ {x, y, z} ] normalized 0–1
+//   blendshapes → expressions as { name: score } with scores 0–1
+//
+//   All blendshape names you can use:
+//     eyeBlinkLeft / eyeBlinkRight
+//     eyeWideLeft  / eyeWideRight
+//     mouthSmileLeft / mouthSmileRight
+//     mouthFrownLeft / mouthFrownRight
+//     jawOpen
+//     browDownLeft / browDownRight
+//     browInnerUp
+//     browOuterUpLeft / browOuterUpRight
+//     cheekPuff
+//     noseSneerLeft / noseSneerRight
+//     mouthPucker / mouthRollLower / mouthRollUpper
+//     ... and ~50 more (log blendshapes object to see all)
+//
+//   Convert a landmark to canvas pixels (already handles mirror flip):
+//     const x = (1 - landmarks[POINT].x) * canvas.width;
+//     const y =      landmarks[POINT].y  * canvas.height;
+
+function onFaceUpdate(landmarks, blendshapes) {
+
+  // ← YOUR CODE HERE
+  //
+  // Examples:
+  //
+  //   Detect a wink:
+  //     if (blendshapes.eyeBlinkLeft > 0.6 && blendshapes.eyeBlinkRight < 0.2)
+  //       console.log('Left wink!');
+  //
+  //   Draw a dot on the nose tip (point 1):
+  //     const x = (1 - landmarks[1].x) * canvas.width;
+  //     const y =      landmarks[1].y  * canvas.height;
+  //     ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI*2);
+  //     ctx.fillStyle = '#ff0'; ctx.fill();
+  //
+  //   React to jaw opening:
+  //     if (blendshapes.jawOpen > 0.5) doSomething();
+
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//   ENGINE — loads the model, runs the webcam loop, draws the face mesh,
+//   updates the expression panel, and calls onFaceUpdate() above.
+// ═════════════════════════════════════════════════════════════════════════════
+
+let faceLandmarker = null;
+let drawingUtils   = null;
+
+async function loadModel() {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  loadBar.style.width = '30%';
+  loadStatus.textContent = 'Loading face landmarker...';
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    outputFaceBlendshapes: true,
+  });
+  loadBar.style.width = '90%';
+}
+
+function loop() {
+  canvas.width  = video.clientWidth;
+  canvas.height = video.clientHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (video.readyState >= 3) {
+    const result = faceLandmarker.detectForVideo(video, Date.now());
+
+    if (result.faceLandmarks.length > 0) {
+      const lms = result.faceLandmarks[0];
+
+      // Draw face mesh (mirrored to match video)
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_TESSELATION,
+        { color: 'rgba(255,255,255,0.07)', lineWidth: 1 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+        { color: 'rgba(0,200,255,0.7)', lineWidth: 1.5 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+        { color: 'rgba(0,200,255,0.7)', lineWidth: 1.5 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
+        { color: 'rgba(160,100,255,0.6)', lineWidth: 1.5 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
+        { color: 'rgba(160,100,255,0.6)', lineWidth: 1.5 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_LIPS,
+        { color: 'rgba(255,80,120,0.7)', lineWidth: 1.5 });
+      drawingUtils.drawConnectors(lms, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+        { color: 'rgba(255,255,255,0.12)', lineWidth: 1 });
+      ctx.restore();
+
+      // Parse blendshapes into a { name: score } object
+      const blendshapes = {};
+      if (result.faceBlendshapes.length > 0) {
+        for (const bs of result.faceBlendshapes[0].categories) {
+          blendshapes[bs.categoryName] = bs.score;
+        }
+      }
+
+      // Update the expression panel
+      setBar('smileL',  blendshapes.mouthSmileLeft   || 0);
+      setBar('smileR',  blendshapes.mouthSmileRight  || 0);
+      setBar('blinkL',  blendshapes.eyeBlinkLeft     || 0);
+      setBar('blinkR',  blendshapes.eyeBlinkRight    || 0);
+      setBar('jaw',     blendshapes.jawOpen           || 0);
+      setBar('browDL',  blendshapes.browDownLeft     || 0);
+      setBar('browDR',  blendshapes.browDownRight    || 0);
+      setBar('puff',    blendshapes.cheekPuff         || 0);
+
+      // Call user hook
+      onFaceUpdate(lms, blendshapes);
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+
+(async () => {
+  try {
+    await loadModel();
+    loadStatus.textContent = 'Requesting camera...';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    drawingUtils = new DrawingUtils(ctx);
+    loadBar.style.width = '100%';
+    loadEl.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    loadStatus.textContent = `Error: ${err.message}`;
+    loadStatus.style.color = '#f44';
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>

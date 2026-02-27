@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Air Theremin — Hands</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: monospace; }
+#scene { position: relative; width: 100vw; height: 100vh; }
+#webcam { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); opacity: 0.3; }
+#canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+#info { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); text-align: center; pointer-events: none; }
+#note-name        { font-size: 96px; color: #fff; font-weight: bold; letter-spacing: 6px; line-height: 1; }
+#freq-display     { font-size: 15px; color: #666; margin-top: 6px; letter-spacing: 3px; }
+#waveform-display { font-size: 11px; color: #444; margin-top: 10px; letter-spacing: 3px; }
+
+#vol-label { position: absolute; left: 22px; top: calc(10% - 18px); font-size: 9px; color: #333; letter-spacing: 2px; }
+#vol-bar-bg { position: absolute; left: 24px; top: 10%; bottom: 10%; width: 4px; background: #111; border-radius: 2px; }
+#vol-bar-fill { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, #00ff99, #00ddff); border-radius: 2px; height: 0%; box-shadow: 0 0 8px #00ff99; transition: height 0.05s; }
+
+#pitch-label { position: absolute; right: 22px; top: calc(10% - 18px); font-size: 9px; color: #333; letter-spacing: 2px; }
+#pitch-guide { position: absolute; right: 24px; top: 10%; bottom: 10%; width: 4px; background: #111; border-radius: 2px; }
+#pitch-marker { position: absolute; left: -4px; right: -4px; height: 3px; background: #fff; border-radius: 2px; top: 50%; box-shadow: 0 0 10px #fff, 0 0 20px #fff; transition: top 0.04s; }
+
+#scope { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); opacity: 0.6; }
+
+#scale-indicator { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #333; letter-spacing: 2px; transition: color 0.4s; white-space: nowrap; }
+
+#hints { position: absolute; bottom: 24px; right: 40px; font-size: 9px; color: #888; line-height: 2; text-align: right; letter-spacing: 1px; }
+
+#loading { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #fff; z-index: 100; }
+#loading-title  { font-size: 22px; letter-spacing: 8px; }
+#loading-status { font-size: 11px; color: #555; }
+#loading-bar-bg { width: 300px; height: 2px; background: #1a1a1a; }
+#loading-bar    { height: 100%; background: #fff; width: 0%; transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">AIR THEREMIN</div>
+  <div id="loading-status">Loading gesture model...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+</div>
+
+<div id="scene">
+  <video id="webcam" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <span id="vol-label">VOL</span>
+  <div id="vol-bar-bg"><div id="vol-bar-fill"></div></div>
+
+  <span id="pitch-label">PITCH</span>
+  <div id="pitch-guide"><div id="pitch-marker"></div></div>
+
+  <div id="info">
+    <div id="note-name">—</div>
+    <div id="freq-display">— Hz</div>
+    <div id="waveform-display">🖐&nbsp; SINE</div>
+  </div>
+
+  <div id="scale-indicator">CHROMATIC &nbsp;·&nbsp; PRESS S TO SNAP TO SCALE</div>
+
+  <canvas id="scope" width="220" height="48"></canvas>
+
+  <div id="hints">
+    RIGHT HAND → pitch<br>
+    LEFT HAND &nbsp;→ volume<br>
+    S key &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ major scale<br>
+    <br>
+    🖐 &nbsp;open palm &nbsp;→ sine<br>
+    ✌️ &nbsp;victory &nbsp;&nbsp;&nbsp;→ sawtooth<br>
+    ✊ &nbsp;fist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ square<br>
+    👍 &nbsp;thumb up &nbsp;&nbsp;→ triangle
+  </div>
+</div>
+
+<script type="module">
+import {
+  GestureRecognizer, FilesetResolver, DrawingUtils,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+
+const video       = document.getElementById('webcam');
+const canvas      = document.getElementById('canvas');
+const ctx         = canvas.getContext('2d');
+const scope       = document.getElementById('scope');
+const scopeCtx    = scope.getContext('2d');
+const loadEl      = document.getElementById('loading');
+const loadBar     = document.getElementById('loading-bar');
+const loadStatus  = document.getElementById('loading-status');
+const noteEl      = document.getElementById('note-name');
+const freqEl      = document.getElementById('freq-display');
+const waveEl      = document.getElementById('waveform-display');
+const scaleEl     = document.getElementById('scale-indicator');
+const volFill     = document.getElementById('vol-bar-fill');
+const pitchMarker = document.getElementById('pitch-marker');
+
+// ── Web Audio ─────────────────────────────────────────────────────────────────
+let audioCtx, oscillator, gainNode, analyser;
+let audioStarted = false;
+
+function startAudio() {
+  if (audioStarted) return;
+  audioStarted = true;
+  audioCtx   = new AudioContext();
+  oscillator = audioCtx.createOscillator();
+  gainNode   = audioCtx.createGain();
+  analyser   = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  oscillator.connect(gainNode);
+  gainNode.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  oscillator.type            = 'sine';
+  gainNode.gain.value        = 0;
+  oscillator.frequency.value = 261.63;
+  oscillator.start();
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentFreq     = 261.63;
+let currentWaveform = 'sine';
+let snapToScale     = false;
+let leftHandVisible = false;
+let lastRightSeen   = 0;
+
+const WAVEFORM_LABELS = {
+  sine:     '🖐\u00a0\u00a0 SINE',
+  sawtooth: '✌️\u00a0\u00a0 SAWTOOTH',
+  square:   '✊\u00a0\u00a0 SQUARE',
+  triangle: '👍\u00a0\u00a0 TRIANGLE',
+};
+
+// Press S to toggle scale snap (replaces smile detection)
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() !== 's') return;
+  snapToScale = !snapToScale;
+  scaleEl.textContent = snapToScale
+    ? 'MAJOR PENTATONIC  ·  PRESS S TO GO CHROMATIC'
+    : 'CHROMATIC  ·  PRESS S TO SNAP TO SCALE';
+  scaleEl.style.color = snapToScale ? '#44cc66' : '#333';
+});
+
+setInterval(() => {
+  if (!audioStarted) return;
+  if (Date.now() - lastRightSeen > 250) {
+    gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+    noteEl.textContent    = '—';
+    freqEl.textContent    = '— Hz';
+    pitchMarker.style.top = '50%';
+    volFill.style.height  = '0%';
+  }
+}, 100);
+
+// ── Music helpers ─────────────────────────────────────────────────────────────
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const PENTATONIC  = [0, 2, 4, 7, 9];
+
+function handYToFreq(y) {
+  let midi = 84 - y * 48;
+  if (snapToScale) {
+    const octave   = Math.floor(midi / 12);
+    const semitone = midi % 12;
+    const nearest  = PENTATONIC.reduce((a, b) =>
+      Math.abs(b - semitone) < Math.abs(a - semitone) ? b : a);
+    midi = octave * 12 + nearest;
+  }
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function freqToNoteName(freq) {
+  const midi = Math.round(69 + 12 * Math.log2(freq / 440));
+  return NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+}
+
+function freqToHue(freq) {
+  const t = Math.log2(freq / 65) / Math.log2(1047 / 65);
+  return Math.max(0, Math.min(1, t)) * 270;
+}
+
+// ── User hooks ────────────────────────────────────────────────────────────────
+function onGestureStart(hand, gesture) {
+  startAudio();
+  if (hand !== 'Right') return;
+  const waveMap = { Open_Palm:'sine', Victory:'sawtooth', Closed_Fist:'square', Thumb_Up:'triangle' };
+  if (waveMap[gesture]) {
+    oscillator.type = currentWaveform = waveMap[gesture];
+    waveEl.textContent = WAVEFORM_LABELS[currentWaveform];
+  }
+}
+
+function onGestureEnd(hand, gesture) {
+  if (hand === 'Left') leftHandVisible = false;
+}
+
+function onHandUpdate(hand, gesture, landmarks) {
+  startAudio();
+  const tip = landmarks[8];
+
+  if (hand === 'Right') {
+    lastRightSeen = Date.now();
+    const freq = handYToFreq(tip.y);
+    currentFreq = freq;
+    oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.04);
+    if (!leftHandVisible) gainNode.gain.setTargetAtTime(0.45, audioCtx.currentTime, 0.08);
+    noteEl.textContent    = freqToNoteName(freq);
+    freqEl.textContent    = `${Math.round(freq)} Hz`;
+    pitchMarker.style.top = `${tip.y * 80 + 10}%`;
+
+    const x = (1 - tip.x) * canvas.width;
+    const y = tip.y * canvas.height;
+    const hue = freqToHue(freq);
+    [40, 26, 14].forEach((r, i) => {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue},100%,65%,${0.05 + i * 0.04})`; ctx.fill();
+    });
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = `hsl(${hue},100%,95%)`; ctx.fill();
+  }
+
+  if (hand === 'Left') {
+    leftHandVisible = true;
+    const vol = Math.max(0, Math.min(1 - tip.y, 1)) * 0.8;
+    gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+    volFill.style.height = `${(vol / 0.8) * 100}%`;
+  }
+}
+
+// ── Pitch guide ───────────────────────────────────────────────────────────────
+const GUIDE_NOTES = [
+  {midi:84,label:'C6',type:'octave'},{midi:79,label:'G5',type:'fifth'},
+  {midi:76,label:'E5',type:'third'},{midi:72,label:'C5',type:'octave'},
+  {midi:69,label:'A4',type:'sixth'},{midi:67,label:'G4',type:'fifth'},
+  {midi:64,label:'E4',type:'third'},{midi:60,label:'C4',type:'middle'},
+  {midi:57,label:'A3',type:'sixth'},{midi:55,label:'G3',type:'fifth'},
+  {midi:52,label:'E3',type:'third'},{midi:48,label:'C3',type:'octave'},
+  {midi:43,label:'G2',type:'fifth'},{midi:40,label:'E2',type:'third'},
+  {midi:36,label:'C2',type:'octave'},
+];
+const PENTA_CLASSES = new Set([0, 2, 4, 7, 9]);
+
+function drawGuides() {
+  const W = canvas.width, H = canvas.height, PAD = 48;
+  ctx.save();
+  for (const { midi, label, type } of GUIDE_NOTES) {
+    const y      = ((84 - midi) / 48) * H;
+    const hue    = freqToHue(440 * Math.pow(2, (midi - 69) / 12));
+    const isPenta = PENTA_CLASSES.has(((midi % 12) + 12) % 12);
+    const isC    = (midi % 12) === 0;
+    const isMid  = type === 'middle';
+    let lineAlpha, labelAlpha, lineWidth, showLabel;
+    if (snapToScale) {
+      lineAlpha = isPenta ? 0.55 : 0.05; labelAlpha = isPenta ? 0.85 : 0;
+      lineWidth = isPenta ? 1 : 0.5;    showLabel  = isPenta;
+    } else {
+      lineAlpha = isMid ? 0.65 : isC ? 0.40 : 0.12;
+      labelAlpha = isMid ? 1.00 : isC ? 0.65 : 0.30;
+      lineWidth  = isMid ? 1.5  : isC ? 1    : 0.5;
+      showLabel  = isC || type === 'fifth';
+    }
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y);
+    ctx.strokeStyle = `hsla(${hue},85%,65%,${lineAlpha})`;
+    ctx.lineWidth = lineWidth;
+    ctx.setLineDash(isC || isMid || isPenta ? [] : [4, 8]);
+    ctx.stroke(); ctx.setLineDash([]);
+    if (showLabel) {
+      ctx.font      = `${isMid ? 'bold ' : ''}11px monospace`;
+      ctx.fillStyle = `hsla(${hue},85%,75%,${labelAlpha})`;
+      ctx.textAlign = 'right';
+      ctx.fillText(isMid ? `${label} ←` : label, W - PAD - 6, y - 4);
+    }
+  }
+  ctx.font = '9px monospace'; ctx.textAlign = 'left';
+  [{label:'↑  LOUD',y:canvas.height*0.12,color:'rgba(0,255,150,0.35)'},
+   {label:'—  MED', y:canvas.height*0.50,color:'rgba(255,220,0,0.30)'},
+   {label:'↓  QUIET',y:canvas.height*0.88,color:'rgba(255,100,100,0.30)'}]
+  .forEach(({label,y,color}) => { ctx.fillStyle=color; ctx.fillText(label,PAD+8,y); });
+  ctx.font='8px monospace'; ctx.fillStyle='rgba(255,255,255,0.18)';
+  ctx.textAlign='right'; ctx.fillText('✋ RIGHT HAND → PITCH', W-PAD-6, 16);
+  ctx.textAlign='left';  ctx.fillText('✋ LEFT HAND → VOL', PAD+8, 16);
+  ctx.restore();
+}
+
+function drawScope() {
+  if (!analyser) return;
+  const W = 220, H = 48, data = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(data);
+  const hue = freqToHue(currentFreq);
+  scopeCtx.clearRect(0, 0, W, H);
+  scopeCtx.beginPath();
+  scopeCtx.strokeStyle = `hsl(${hue},100%,65%)`; scopeCtx.lineWidth = 1.5;
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / data.length) * W, y = (data[i] / 255) * H;
+    i === 0 ? scopeCtx.moveTo(x, y) : scopeCtx.lineTo(x, y);
+  }
+  scopeCtx.stroke();
+}
+
+// ── Engine ────────────────────────────────────────────────────────────────────
+let gestureRecognizer = null, drawingUtils = null;
+const prevGesture = { Left: 'None', Right: 'None' };
+
+async function loadModels() {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  loadBar.style.width = '30%';
+  gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO", numHands: 2,
+  });
+  loadBar.style.width = '90%';
+}
+
+function loop() {
+  if (canvas.width !== video.clientWidth) { canvas.width = video.clientWidth; canvas.height = video.clientHeight; }
+  ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawGuides();
+
+  if (video.readyState >= 3) {
+    const now = Date.now();
+    const gResult = gestureRecognizer.recognizeForVideo(video, now);
+    const seenHands = new Set();
+    for (let i = 0; i < gResult.gestures.length; i++) {
+      const hand = gResult.handedness[i][0].displayName;
+      const gesture = gResult.gestures[i][0].categoryName;
+      const lms = gResult.landmarks[i];
+      seenHands.add(hand);
+      if (gesture !== prevGesture[hand]) {
+        if (prevGesture[hand] !== 'None') onGestureEnd(hand, prevGesture[hand]);
+        if (gesture !== 'None')           onGestureStart(hand, gesture);
+        prevGesture[hand] = gesture;
+      }
+      ctx.save(); ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+      drawingUtils.drawConnectors(lms, GestureRecognizer.HAND_CONNECTIONS, {
+        color: hand === 'Left' ? 'rgba(160,60,255,0.45)' : 'rgba(60,210,255,0.45)', lineWidth: 1.5,
+      });
+      drawingUtils.drawLandmarks(lms, { color: 'rgba(255,255,255,0.5)', lineWidth: 1, radius: 2 });
+      ctx.restore();
+      onHandUpdate(hand, gesture, lms);
+    }
+    for (const hand of ['Left', 'Right']) {
+      if (!seenHands.has(hand) && prevGesture[hand] !== 'None') {
+        onGestureEnd(hand, prevGesture[hand]); prevGesture[hand] = 'None';
+      }
+    }
+  }
+  drawScope();
+  requestAnimationFrame(loop);
+}
+
+(async () => {
+  try {
+    await loadModels();
+    loadStatus.textContent = 'Requesting camera...';
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width:{ideal:1280}, height:{ideal:720} } });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    drawingUtils = new DrawingUtils(ctx);
+    loadBar.style.width = '100%';
+    loadEl.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    loadStatus.textContent = `Error: ${err.message}`;
+    loadStatus.style.color = '#f44';
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>

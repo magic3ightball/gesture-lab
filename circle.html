@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Circle → Sine Wave</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: monospace; color: #fff; }
+canvas { position: fixed; top: 0; left: 0; }
+
+/* ── Label panel ── */
+#ui {
+  position: fixed; top: 16px; left: 16px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid #181818;
+  border-radius: 10px;
+  padding: 12px 16px;
+  line-height: 2; font-size: 12px;
+  backdrop-filter: blur(6px);
+  min-width: 170px;
+  pointer-events: none;
+}
+.ui-row { display: flex; justify-content: space-between; gap: 18px; }
+.ui-key { color: #444; }
+
+/* ── Webcam inset ── */
+#cam-wrap {
+  position: fixed; bottom: 16px; right: 16px;
+  width: 160px; border-radius: 8px;
+  overflow: hidden; border: 1px solid #1a1a1a; opacity: 0.6;
+}
+#cam-wrap video { width: 100%; display: block; transform: scaleX(-1); }
+#cam-label {
+  display: block; text-align: center;
+  font-size: 8px; color: #333; letter-spacing: 1px;
+  padding: 3px 0; background: #000;
+}
+
+/* ── Loading ── */
+#loading {
+  position: fixed; inset: 0; background: #000; z-index: 100;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+}
+#loading-title  { font-size: 24px; letter-spacing: 8px; }
+#loading-sub    { font-size: 11px; color: #555; }
+#loading-bar-bg { width: 300px; height: 2px; background: #111; }
+#loading-bar    { height: 100%; background: #0ff; width: 0%; transition: width 0.3s; }
+#loading-hint   { font-size: 9px; color: #222; text-align: center; max-width: 280px; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">CIRCLE → WAVE</div>
+  <div id="loading-sub">Loading hand model...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+  <div id="loading-hint">
+    Point your index finger ☝️ and swing it in a circle<br>
+    like a yo-yo. Watch the sine wave draw itself.
+  </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="ui-row">
+    <span class="ui-key">θ</span>
+    <span id="v-theta" style="color:#ffdc50">—</span>
+  </div>
+  <div class="ui-row">
+    <span class="ui-key">ω</span>
+    <span id="v-omega">—</span>
+  </div>
+  <div class="ui-row">
+    <span class="ui-key">f</span>
+    <span id="v-freq">—</span>
+  </div>
+  <div class="ui-row">
+    <span class="ui-key">T</span>
+    <span id="v-period">—</span>
+  </div>
+  <div class="ui-row" style="margin-top:2px">
+    <span class="ui-key" style="color:#00ff78">sin(θ)</span>
+    <span id="v-sin" style="color:#00ff78">—</span>
+  </div>
+  <div class="ui-row">
+    <span class="ui-key" style="color:#ff50c8">cos(θ)</span>
+    <span id="v-cos" style="color:#ff50c8">—</span>
+  </div>
+  <div class="ui-row" style="margin-top:2px; min-height:20px">
+    <span id="v-dir" style="color:#ffdc50; font-size:11px"></span>
+  </div>
+</div>
+
+<div id="cam-wrap">
+  <video id="webcam" autoplay muted playsinline></video>
+  <span id="cam-label">☝️ YOUR HAND</span>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const video   = document.getElementById('webcam');
+const loadEl  = document.getElementById('loading');
+const loadBar = document.getElementById('loading-bar');
+const loadSub = document.getElementById('loading-sub');
+const vTheta  = document.getElementById('v-theta');
+const vOmega  = document.getElementById('v-omega');
+const vFreq   = document.getElementById('v-freq');
+const vPeriod = document.getElementById('v-period');
+const vSin    = document.getElementById('v-sin');
+const vCos    = document.getElementById('v-cos');
+const vDir    = document.getElementById('v-dir');
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const HISTORY_LEN  = 90;
+const WAVE_LEN     = 300;
+const EMA_W        = 0.08;
+const EMA_R        = 0.05;
+const MIN_R        = 28;    // px — below this radius, not "active"
+const OMEGA_THRESH = 0.5;   // rad/s — below this, audio fades
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const posHist  = [];
+let cx0 = 0, cy0 = 0;
+let radius = 0, maxR = 1;
+let rawAngle = 0, prevRaw = null;
+let thetaRad = 0, thetaDeg = 0;
+let omega = 0, prevTs = null;
+let freqHz = 0, period = Infinity;
+let sinVal = 0, cosVal = 0;
+let isActive = false, lastSeen = 0;
+
+const sinBuf = new Float32Array(WAVE_LEN);
+const cosBuf = new Float32Array(WAVE_LEN);
+let wIdx = 0;
+
+// Layout regions (recomputed on resize)
+let CCX, CCY, CR;          // circle diagram: centre + radius
+let SX, SY, SW, SH;       // sine region
+let QX, QY, QW, QH;       // cosine region
+
+// Projection endpoints — set by drawSine/drawCosine, read by drawProjections
+let sinEndX = 0, sinEndY = 0;
+let cosEndX = 0, cosEndY = 0;
+
+// Instruction overlay pulse
+let pulse = 0;
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+let audioCtx, osc, gain, audioOn = false;
+
+function startAudio() {
+  if (audioOn) return;
+  audioOn  = true;
+  audioCtx = new AudioContext();
+  osc      = audioCtx.createOscillator();
+  gain     = audioCtx.createGain();
+  osc.type            = 'sine';  // a sine oscillator — matching what we're teaching
+  osc.frequency.value = 220;
+  gain.gain.value     = 0;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+}
+
+function updateAudio() {
+  if (!audioOn) return;
+  const t = audioCtx.currentTime;
+  if (!isActive || Math.abs(omega) < OMEGA_THRESH) {
+    gain.gain.setTargetAtTime(0, t, 0.3);
+    return;
+  }
+  // 1 Hz rotation → 220 Hz tone (A3). Proportional: faster spin = higher pitch.
+  osc.frequency.setTargetAtTime(
+    Math.max(55, Math.min(880, freqHz * 220)), t, 0.05
+  );
+  gain.gain.setTargetAtTime(
+    Math.min(radius / maxR, 1) * 0.35, t, 0.08
+  );
+}
+
+setInterval(() => {
+  if (audioOn && Date.now() - lastSeen > 400)
+    gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+}, 100);
+
+// ── Data processing ───────────────────────────────────────────────────────────
+function processFrame(x, y, nowMs) {
+  startAudio();
+  lastSeen = Date.now();
+
+  // Rolling-average center estimation
+  posHist.push({ x, y });
+  if (posHist.length > HISTORY_LEN) posHist.shift();
+  if (posHist.length >= 10) {
+    let sx = 0, sy = 0;
+    for (const p of posHist) { sx += p.x; sy += p.y; }
+    cx0 = sx / posHist.length;
+    cy0 = sy / posHist.length;
+  } else {
+    cx0 = x; cy0 = y;
+  }
+
+  const dx = x - cx0, dy = y - cy0;
+  radius = Math.sqrt(dx * dx + dy * dy);
+  maxR   = radius > maxR
+    ? radius
+    : Math.max(MIN_R, maxR * (1 - EMA_R) + radius * EMA_R);
+
+  rawAngle = Math.atan2(dy, dx);
+
+  if (prevRaw === null) { prevRaw = rawAngle; prevTs = nowMs; return; }
+
+  // Unwrap delta to [-π, π] — prevents spurious ω spikes at the ±π boundary
+  let delta = rawAngle - prevRaw;
+  if (delta >  Math.PI) delta -= 2 * Math.PI;
+  if (delta < -Math.PI) delta += 2 * Math.PI;
+  prevRaw = rawAngle;
+
+  // Angle for display: normalize to [0, 2π)
+  thetaRad = ((rawAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  thetaDeg = thetaRad * 180 / Math.PI;
+
+  const norm = Math.min(radius / maxR, 1);
+  sinVal = norm * Math.sin(thetaRad);   // Y-projection, normalized
+  cosVal = norm * Math.cos(thetaRad);   // X-projection, normalized
+
+  // Angular velocity: EMA-smoothed to remove per-frame noise
+  const dt = (nowMs - prevTs) / 1000;
+  prevTs = nowMs;
+  if (dt > 0 && dt < 0.2)
+    omega = EMA_W * (delta / dt) + (1 - EMA_W) * omega;
+
+  freqHz = Math.abs(omega) / (2 * Math.PI);
+  period = freqHz > 0.001 ? 1 / freqHz : Infinity;
+  isActive = radius >= MIN_R;
+
+  // Push to wave ring buffers
+  sinBuf[wIdx] = isActive ? sinVal : 0;
+  cosBuf[wIdx] = isActive ? cosVal : 0;
+  wIdx = (wIdx + 1) % WAVE_LEN;
+}
+
+// Read ring buffer in chronological order: [0] = oldest, [WAVE_LEN-1] = newest
+function getWave(buf) {
+  const out = new Float32Array(WAVE_LEN);
+  for (let i = 0; i < WAVE_LEN; i++)
+    out[i] = buf[(wIdx + i) % WAVE_LEN];
+  return out;
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+function computeLayout() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const W = canvas.width, H = canvas.height, P = 24;
+  const cw = W * 0.36, ch = H * 0.52;
+
+  CCX = P + cw * 0.5;
+  CCY = P + ch * 0.5;
+  CR  = Math.min(cw, ch) * 0.40;
+
+  SX = P + cw + P * 2;  SY = P;      // Sine: right of circle
+  SW = W - SX - P;       SH = ch;
+
+  QX = P;                QY = P + ch + P * 2;  // Cosine: below circle
+  QW = cw;               QH = H - QY - P;
+}
+
+// ── Drawing helpers ───────────────────────────────────────────────────────────
+function line(x1, y1, x2, y2) {
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+
+// ── Circle region ─────────────────────────────────────────────────────────────
+function drawCircle() {
+  // Ghost path ring
+  ctx.beginPath();
+  ctx.arc(CCX, CCY, CR, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth   = 1;
+  ctx.stroke();
+
+  // Dashed axes
+  ctx.save();
+  ctx.setLineDash([4, 8]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth   = 1;
+  line(CCX - CR - 12, CCY, CCX + CR + 12, CCY);  // x-axis
+  line(CCX, CCY - CR - 12, CCX, CCY + CR + 12);  // y-axis
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Axis labels
+  ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.font = '11px monospace';
+  ctx.textAlign = 'center'; ctx.fillText('x', CCX + CR + 20, CCY + 4);
+  ctx.textAlign = 'left';   ctx.fillText('y', CCX + 4, CCY - CR - 8);
+
+  // Instruction overlay when not circling
+  if (!isActive) {
+    pulse = (pulse + 0.025) % (Math.PI * 2);
+    const pr = CR * (0.55 + 0.12 * Math.sin(pulse));
+    ctx.beginPath(); ctx.arc(CCX, CCY, pr, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.setLineDash([8, 12]); ctx.lineWidth = 1.5;
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('swing your index finger',  CCX, CCY - 14);
+    ctx.fillText('☝️  in a circle',           CCX, CCY + 10);
+    ctx.fillText('like a yo-yo',             CCX, CCY + 32);
+    return;
+  }
+
+  const dotX = CCX + CR * Math.cos(thetaRad);
+  const dotY = CCY + CR * Math.sin(thetaRad);
+
+  // θ arc (from 0 to current angle)
+  ctx.beginPath();
+  ctx.arc(CCX, CCY, CR * 0.22, 0, thetaRad, omega < 0);
+  ctx.strokeStyle = 'rgba(255,220,80,0.8)'; ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // θ label near arc midpoint
+  const arcMid = thetaRad / 2;
+  ctx.fillStyle = '#ffdc50'; ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('θ',
+    CCX + CR * 0.36 * Math.cos(arcMid),
+    CCY + CR * 0.36 * Math.sin(arcMid) + 4
+  );
+
+  // Radius line from center to dot
+  ctx.beginPath(); ctx.moveTo(CCX, CCY); ctx.lineTo(dotX, dotY);
+  ctx.strokeStyle = 'rgba(255,255,255,0.38)'; ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // sin projection (vertical drop to x-axis) — within circle area
+  ctx.save();
+  ctx.setLineDash([3, 5]);
+  ctx.strokeStyle = 'rgba(0,255,120,0.22)'; ctx.lineWidth = 1;
+  line(dotX, dotY, dotX, CCY);
+  // cos projection (horizontal to y-axis) — within circle area
+  ctx.strokeStyle = 'rgba(255,80,200,0.22)';
+  line(dotX, dotY, CCX, dotY);
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Axis intercept dots — sin intercept on x-axis (green), cos intercept on y-axis (pink)
+  ctx.beginPath(); ctx.arc(dotX, CCY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,255,120,0.85)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(CCX, dotY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,80,200,0.85)'; ctx.fill();
+
+  // Spinning dot — glow rings + bright core
+  [18, 10].forEach((r, i) => {
+    ctx.beginPath(); ctx.arc(dotX, dotY, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0,238,255,${i === 0 ? 0.06 : 0.16})`; ctx.fill();
+  });
+  ctx.beginPath(); ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#00eeff'; ctx.fill();
+
+  // P(cos θ, sin θ) label near dot
+  ctx.fillStyle = 'rgba(0,238,255,0.55)'; ctx.font = '9px monospace';
+  ctx.textAlign = dotX > CCX ? 'left' : 'right';
+  ctx.fillText('P(cos θ, sin θ)',
+    dotX + (dotX > CCX ? 10 : -10),
+    dotY + (dotY > CCY ?  14 :  -8)
+  );
+}
+
+// ── Sine wave region (scrolls rightward) ──────────────────────────────────────
+function drawSine() {
+  const midY   = SY + SH / 2;
+  const scaleY = SH * 0.41;
+
+  // Tinted background
+  ctx.fillStyle = 'rgba(0,20,8,0.55)'; ctx.fillRect(SX, SY, SW, SH);
+
+  // Zero line + ±1 reference lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+  line(SX, midY, SX + SW, midY);
+  ctx.strokeStyle = 'rgba(0,255,120,0.07)'; ctx.lineWidth = 0.5;
+  line(SX, midY - scaleY, SX + SW, midY - scaleY);
+  line(SX, midY + scaleY, SX + SW, midY + scaleY);
+
+  // Tick labels
+  ctx.fillStyle = 'rgba(0,255,120,0.28)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+  ctx.fillText('+1', SX + 4, midY - scaleY - 3);
+  ctx.fillText(' 0', SX + 4, midY - 3);
+  ctx.fillText('−1', SX + 4, midY + scaleY + 11);
+
+  // Region title
+  ctx.fillStyle = 'rgba(0,255,120,0.7)'; ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('y = sin(θ)', SX + SW - 8, SY + 16);
+
+  // Sub-caption
+  ctx.fillStyle = 'rgba(0,255,120,0.2)'; ctx.font = '9px monospace';
+  ctx.fillText('Y-component of circular motion →', SX + SW - 8, SY + SH - 6);
+
+  if (!isActive) {
+    sinEndX = SX + SW; sinEndY = midY; return;
+  }
+
+  const s = getWave(sinBuf);
+
+  // Waveform: oldest = left, newest = right
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(0,255,120,0.9)'; ctx.lineWidth = 2;
+  for (let i = 0; i < WAVE_LEN; i++) {
+    const px = SX + (i / (WAVE_LEN - 1)) * SW;
+    const py = midY - s[i] * scaleY;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Current (newest) sample — rightmost point
+  sinEndX = SX + SW;
+  sinEndY = midY - s[WAVE_LEN - 1] * scaleY;
+
+  // Endpoint dot
+  ctx.beginPath(); ctx.arc(sinEndX, sinEndY, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#00ff78'; ctx.fill();
+
+  // Value label
+  ctx.fillStyle = '#00ff78'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+  ctx.fillText(s[WAVE_LEN - 1].toFixed(3), sinEndX - 10, sinEndY - 9);
+}
+
+// ── Cosine wave region (scrolls downward) ─────────────────────────────────────
+function drawCosine() {
+  const midX   = QX + QW / 2;
+  const scaleX = QW * 0.41;
+
+  // Tinted background
+  ctx.fillStyle = 'rgba(15,0,12,0.55)'; ctx.fillRect(QX, QY, QW, QH);
+
+  // Zero line (vertical) + ±1 reference lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+  line(midX, QY, midX, QY + QH);
+  ctx.strokeStyle = 'rgba(255,80,200,0.07)'; ctx.lineWidth = 0.5;
+  line(midX - scaleX, QY, midX - scaleX, QY + QH);
+  line(midX + scaleX, QY, midX + scaleX, QY + QH);
+
+  // Tick labels
+  ctx.fillStyle = 'rgba(255,80,200,0.28)'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('+1', midX + scaleX,     QY + 12);
+  ctx.fillText('−1', midX - scaleX,     QY + 12);
+  ctx.fillText(' 0', midX + 6,           QY + 22);
+
+  // Region title
+  ctx.fillStyle = 'rgba(255,80,200,0.7)'; ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x = cos(θ)', midX, QY + 16);
+
+  // Sub-caption
+  ctx.fillStyle = 'rgba(255,80,200,0.2)'; ctx.font = '9px monospace';
+  ctx.fillText('X-component', midX, QY + QH - 6);
+
+  if (!isActive) {
+    cosEndX = midX; cosEndY = QY; return;
+  }
+
+  const s = getWave(cosBuf);
+
+  // Waveform: newest = top (QY), oldest = bottom (QY+QH)
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(255,80,200,0.9)'; ctx.lineWidth = 2;
+  for (let i = 0; i < WAVE_LEN; i++) {
+    // i=0 is oldest → bottom; i=WAVE_LEN-1 is newest → top
+    const py = QY + QH - (i / (WAVE_LEN - 1)) * QH;
+    const px = midX + s[i] * scaleX;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Current (newest) sample — at top of region
+  cosEndX = midX + s[WAVE_LEN - 1] * scaleX;
+  cosEndY = QY;
+
+  // Endpoint dot
+  ctx.beginPath(); ctx.arc(cosEndX, cosEndY, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff50c8'; ctx.fill();
+
+  // Value label
+  ctx.fillStyle = '#ff50c8'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(s[WAVE_LEN - 1].toFixed(3), cosEndX, cosEndY - 9);
+}
+
+// ── Projection lines ── the key "aha" visual ──────────────────────────────────
+function drawProjections() {
+  if (!isActive) return;
+  const dotX = CCX + CR * Math.cos(thetaRad);
+  const dotY = CCY + CR * Math.sin(thetaRad);
+
+  ctx.save();
+  ctx.setLineDash([7, 7]); ctx.lineWidth = 1.4;
+
+  // Spinning dot → current sine endpoint (green, shows Y-projection)
+  ctx.beginPath(); ctx.strokeStyle = 'rgba(0,255,120,0.55)';
+  ctx.moveTo(dotX, dotY); ctx.lineTo(sinEndX, sinEndY); ctx.stroke();
+
+  // Spinning dot → current cosine endpoint (pink, shows X-projection)
+  ctx.beginPath(); ctx.strokeStyle = 'rgba(255,80,200,0.55)';
+  ctx.moveTo(dotX, dotY); ctx.lineTo(cosEndX, cosEndY); ctx.stroke();
+
+  ctx.setLineDash([]); ctx.restore();
+}
+
+// ── Label panel update ────────────────────────────────────────────────────────
+function updateLabels() {
+  if (!isActive) {
+    vTheta.textContent = '—'; vOmega.textContent = '—';
+    vFreq.textContent  = '—'; vPeriod.textContent = '—';
+    vSin.textContent   = '—'; vCos.textContent    = '—';
+    vDir.textContent   = ''; return;
+  }
+  vTheta.textContent  = `${thetaDeg.toFixed(1)}°`;
+  vOmega.textContent  = `${omega.toFixed(2)} rad/s`;
+  vFreq.textContent   = `${freqHz.toFixed(2)} Hz`;
+  vPeriod.textContent = period < 999 ? `${period.toFixed(2)} s` : '∞';
+  vSin.textContent    = sinVal.toFixed(3);
+  vCos.textContent    = cosVal.toFixed(3);
+  vDir.textContent    = Math.abs(omega) > OMEGA_THRESH
+    ? (omega > 0 ? '↺  CCW' : '↻  CW') : '';
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawCircle();
+  drawSine();
+  drawCosine();
+  drawProjections();
+  updateLabels();
+  updateAudio();
+}
+
+// ── MediaPipe engine ──────────────────────────────────────────────────────────
+let handLandmarker = null;
+
+async function loadModel() {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  loadBar.style.width = '30%';
+  loadSub.textContent = 'Loading HandLandmarker...';
+  handLandmarker = await HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numHands: 1,   // only the one circling hand needed
+  });
+  loadBar.style.width = '90%';
+}
+
+function loop() {
+  if (video.readyState >= 3) {
+    const result = handLandmarker.detectForVideo(video, Date.now());
+    if (result.landmarks.length > 0) {
+      const tip = result.landmarks[0][8];  // index fingertip
+      processFrame(
+        (1 - tip.x) * canvas.width,   // mirror-correct x
+             tip.y  * canvas.height,
+        Date.now()
+      );
+    } else {
+      isActive = false;
+    }
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    computeLayout();
+    window.addEventListener('resize', computeLayout);
+
+    await loadModel();
+    loadSub.textContent = 'Requesting camera...';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+
+    loadBar.style.width = '100%';
+    loadEl.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    loadSub.textContent = `Error: ${err.message}`;
+    loadSub.style.color = '#f44';
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
