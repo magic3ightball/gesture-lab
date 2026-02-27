@@ -611,6 +611,7 @@ function startCountdown() {
       clearInterval(iv);
       countdownEl.style.display = 'none';
       GAME.state     = 'playing';
+      GAME.startTime = Date.now() - LOOK_AHEAD;
       pauseBtnEl.textContent = '⏸\u00a0 PAUSE';
       scoreUiEl.style.display   = 'block';
       gameCtrlEl.style.display  = 'flex';
@@ -684,7 +685,9 @@ function processGame(now) {
   if (GAME.state !== 'playing' && GAME.state !== 'paused' && GAME.state !== 'countdown') return;
   if (GAME.state === 'paused') return;
 
-  const elapsed     = now - GAME.startTime;
+  // During countdown: freeze notes at their "about to appear" positions (no scrolling, no scoring)
+  // During playing: use real elapsed time
+  const elapsed = GAME.state === 'countdown' ? -LOOK_AHEAD : now - GAME.startTime;
   const scrollSpeed = (canvas.width - HIT_X) / LOOK_AHEAD;  // px/ms
 
   // Song end check
