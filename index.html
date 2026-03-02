@@ -808,7 +808,7 @@ function processGame(now) {
     const drawW = noteW - Math.max(0, 0 - noteX);
 
     if (note.tremolo) {
-      const amp = 4, waveLen = 14, phase = Date.now() * 0.004;
+      const amp = 4, waveLen = 14, phase = 0;
       ctx.fillStyle = color;
       ctx.beginPath();
       for (let px = drawX; px <= drawX + drawW; px += 3) {
