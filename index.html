@@ -314,23 +314,6 @@ const songPickerEl = document.getElementById('song-picker');
 const spListEl     = document.getElementById('sp-list');
 const spCancelEl   = document.getElementById('sp-cancel');
 
-// Build song picker buttons
-SONGS.forEach(song => {
-  const btn = document.createElement('button');
-  btn.className = 'sp-song-btn';
-  btn.innerHTML = `▶&nbsp;&nbsp;${song.title}<span class="sp-sub">${song.sub}</span>`;
-  btn.addEventListener('click', () => {
-    buildSong(song);
-    songPickerEl.style.display = 'none';
-    startCountdown();
-  });
-  spListEl.appendChild(btn);
-});
-
-spCancelEl.addEventListener('click', () => {
-  songPickerEl.style.display = 'none';
-  gameBtnEl.style.display = 'block';
-});
 
 function setThereminUI(visible) {
   const v = visible ? '' : 'none';
@@ -695,6 +678,24 @@ function buildSong(song) {
 }
 
 buildSong(SONGS[0]);
+
+// Build song picker buttons (must run after SONGS is defined)
+SONGS.forEach(song => {
+  const btn = document.createElement('button');
+  btn.className = 'sp-song-btn';
+  btn.innerHTML = `▶&nbsp;&nbsp;${song.title}<span class="sp-sub">${song.sub}</span>`;
+  btn.addEventListener('click', () => {
+    buildSong(song);
+    songPickerEl.style.display = 'none';
+    startCountdown();
+  });
+  spListEl.appendChild(btn);
+});
+
+spCancelEl.addEventListener('click', () => {
+  songPickerEl.style.display = 'none';
+  gameBtnEl.style.display = 'block';
+});
 
 // ── Game constants ────────────────────────────────────────────────────────────
 let HIT_X             = 0;   // set each frame to canvas.width / 2
