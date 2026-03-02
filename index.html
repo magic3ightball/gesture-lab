@@ -329,7 +329,7 @@ const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const PENTATONIC  = [0, 2, 4, 7, 9];
 
 function handYToFreq(y) {
-  let midi = 72 - y * 24;  // C3 (48) → C5 (72), two octaves
+  let midi = 72 - y * 12;  // C4 (60) → C5 (72), one octave
   if (snapToScale) {
     const octave   = Math.floor(midi / 12);
     const semitone = midi % 12;
@@ -347,9 +347,9 @@ function freqToNoteName(freq) {
 }
 
 function freqToHue(freq) {
-  // C3 (130.8 Hz) → C5 (523.3 Hz), two octaves
-  const t = Math.log2(freq / 130.8) / Math.log2(523.3 / 130.8);
-  return Math.max(0, Math.min(1, t)) * 270;
+  // C4 (261.6 Hz) → C5 (523.3 Hz), full rainbow (red → violet → red)
+  const t = Math.log2(freq / 261.6) / Math.log2(523.3 / 261.6);
+  return Math.max(0, Math.min(1, t)) * 360;
 }
 
 // ── Gesture handlers ──────────────────────────────────────────────────────────
@@ -430,12 +430,13 @@ function onFaceUpdate(landmarks, blendshapes) {
 // ── Pitch + volume guide ──────────────────────────────────────────────────────
 const GUIDE_NOTES = [
   { midi: 72, label: 'C5', type: 'octave' },
-  { midi: 67, label: 'G4', type: 'fifth'  },
-  { midi: 64, label: 'E4', type: 'third'  },
-  { midi: 60, label: 'C4', type: 'middle' },
-  { midi: 55, label: 'G3', type: 'fifth'  },
-  { midi: 52, label: 'E3', type: 'third'  },
-  { midi: 48, label: 'C3', type: 'octave' },
+  { midi: 71, label: 'B4', type: 'note'   },
+  { midi: 69, label: 'A4', type: 'note'   },
+  { midi: 67, label: 'G4', type: 'note'   },
+  { midi: 65, label: 'F4', type: 'note'   },
+  { midi: 64, label: 'E4', type: 'note'   },
+  { midi: 62, label: 'D4', type: 'note'   },
+  { midi: 60, label: 'C4', type: 'octave' },
 ];
 const PENTA_CLASSES = new Set([0, 2, 4, 7, 9]);
 
@@ -443,7 +444,7 @@ function drawGuides() {
   const W = canvas.width, H = canvas.height, PAD = 48;
   ctx.save();
   for (const { midi, label, type } of GUIDE_NOTES) {
-    const y       = ((72 - midi) / 24) * H;
+    const y       = ((72 - midi) / 12) * H;
     const hue     = freqToHue(440 * Math.pow(2, (midi - 69) / 12));
     const isPenta = PENTA_CLASSES.has(((midi % 12) + 12) % 12);
     const isC     = (midi % 12) === 0;
@@ -542,7 +543,7 @@ const SONG_NOTES = SONG_RAW.map(([midi, beats]) => {
     midi,
     timeStart: _t * BEAT_MS,
     timeDur:   beats * BEAT_MS,
-    yNorm:     (72 - midi) / 24,   // normalized Y — matches theremin mapping
+    yNorm:     (72 - midi) / 12,   // normalized Y — matches theremin mapping
     result:    null,               // null | 'great' | 'fair' | 'bad' | 'miss'
     scored:    false,
   };
