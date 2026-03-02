@@ -371,6 +371,25 @@ function onGestureEnd(hand, gesture) {
   if (hand === 'Left') leftHandVisible = false;
 }
 
+// ── Oscillation detection (for tremolo notes) ────────────────────────────────
+const handYHistory = [];  // { y, t } rolling 600ms buffer
+
+function detectOscillation() {
+  const now = Date.now();
+  const recent = handYHistory.filter(p => now - p.t < 500);
+  if (recent.length < 6) return false;
+  const mean   = recent.reduce((s, p) => s + p.y, 0) / recent.length;
+  const stddev = Math.sqrt(recent.reduce((s, p) => s + (p.y - mean) ** 2, 0) / recent.length);
+  if (stddev < 0.015) return false;  // amplitude too small
+  let crossings = 0, prev = recent[0].y - mean;
+  for (let i = 1; i < recent.length; i++) {
+    const curr = recent[i].y - mean;
+    if (prev * curr < 0) crossings++;
+    prev = curr;
+  }
+  return crossings >= 3;  // ≥3 zero-crossings in 500ms ≈ vibrato speed
+}
+
 function onHandUpdate(hand, gesture, landmarks) {
   startAudio();
   const tip = landmarks[8];
@@ -378,6 +397,9 @@ function onHandUpdate(hand, gesture, landmarks) {
   if (hand === 'Right') {
     lastRightSeen = Date.now();
     rightHandY    = tip.y;
+    const now = Date.now();
+    handYHistory.push({ y: tip.y, t: now });
+    while (handYHistory.length > 0 && now - handYHistory[0].t > 600) handYHistory.shift();
 
     const freq  = handYToFreq(tip.y);
     currentFreq = freq;
@@ -526,20 +548,22 @@ function drawScope() {
 const BPM     = 100;
 const BEAT_MS = 60000 / BPM;   // 600 ms per beat
 
-// Twinkle Twinkle Little Star — [midiNote, durationBeats]
+// Twinkle Twinkle Little Star — [midiNote, durationBeats, tremolo?]
+// Second note of each repeated pair is marked tremolo (1)
 const SONG_RAW = [
-  [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],
-  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2],
-  [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],
-  [67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],
-  [60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],
-  [65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,4],
+  [60,1,0],[60,1,1],[67,1,0],[67,1,1],[69,1,0],[69,1,1],[67,2,0],
+  [65,1,0],[65,1,1],[64,1,0],[64,1,1],[62,1,0],[62,1,1],[60,2,0],
+  [67,1,0],[67,1,1],[65,1,0],[65,1,1],[64,1,0],[64,1,1],[62,2,0],
+  [67,1,0],[67,1,1],[65,1,0],[65,1,1],[64,1,0],[64,1,1],[62,2,0],
+  [60,1,0],[60,1,1],[67,1,0],[67,1,1],[69,1,0],[69,1,1],[67,2,0],
+  [65,1,0],[65,1,1],[64,1,0],[64,1,1],[62,1,0],[62,1,1],[60,4,0],
 ];
 
 let _t = 0;
-const SONG_NOTES = SONG_RAW.map(([midi, beats]) => {
+const SONG_NOTES = SONG_RAW.map(([midi, beats, trem]) => {
   const note = {
     midi,
+    tremolo:   !!trem,
     timeStart: _t * BEAT_MS,
     timeDur:   beats * BEAT_MS,
     yNorm:     VPAD + (DIATONIC_MIDI.indexOf(midi) / 7) * (1 - 2 * VPAD),
@@ -719,9 +743,16 @@ function processGame(now) {
       const H       = canvas.height;
 
       let rating = null;
-      if      (dist <= H * 0.030) rating = 'great';
-      else if (dist <= H * 0.060) rating = 'fair';
-      else if (dist <= H * 0.095) rating = 'bad';
+      if (note.tremolo) {
+        const osc = detectOscillation();
+        if      (dist <= H * 0.030 && osc) rating = 'great';
+        else if (dist <= H * 0.060 && osc) rating = 'fair';
+        else if (dist <= H * 0.095)        rating = 'bad';  // right place, no vibrato
+      } else {
+        if      (dist <= H * 0.030) rating = 'great';
+        else if (dist <= H * 0.060) rating = 'fair';
+        else if (dist <= H * 0.095) rating = 'bad';
+      }
 
       // Keep best rating achieved during window
       if (rating && (!note.result || RATING_RANK[rating] > RATING_RANK[note.result]))
@@ -778,6 +809,21 @@ function processGame(now) {
 
     ctx.fillStyle = color;
     ctx.fillRect(drawX, noteY - NOTE_H / 2, drawW, NOTE_H);
+
+    // Wavy line overlay for tremolo notes
+    if (note.tremolo) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.70)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      const amp = 3.5, waveLen = 10;
+      for (let px = drawX; px <= drawX + drawW; px += 2) {
+        const wy = noteY + Math.sin((px - drawX) / waveLen * Math.PI * 2) * amp;
+        px === drawX ? ctx.moveTo(px, wy) : ctx.lineTo(px, wy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Note name inside bar
     const noteName = NOTE_NAMES[note.midi % 12];
