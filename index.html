@@ -30,11 +30,11 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   pointer-events: none;
 }
 #note-name       { font-size: 96px; color: #fff; font-weight: bold; letter-spacing: 6px; line-height: 1; }
-#freq-display    { font-size: 15px; color: #666; margin-top: 6px; letter-spacing: 3px; }
-#waveform-display{ font-size: 11px; color: #444; margin-top: 10px; letter-spacing: 3px; }
+#freq-display    { font-size: 15px; color: #888; margin-top: 6px; letter-spacing: 3px; }
+#waveform-display{ font-size: 11px; color: #888; margin-top: 10px; letter-spacing: 3px; }
 
 /* ── Left: volume bar ── */
-#vol-label { position: absolute; left: 22px; top: calc(10% - 18px); font-size: 9px; color: #333; letter-spacing: 2px; }
+#vol-label { position: absolute; left: 22px; top: calc(10% - 18px); font-size: 9px; color: #888; letter-spacing: 2px; }
 #vol-bar-bg {
   position: absolute; left: 24px; top: 10%; bottom: 10%;
   width: 4px; background: #111; border-radius: 2px;
@@ -48,7 +48,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 }
 
 /* ── Right: pitch guide ── */
-#pitch-label { position: absolute; right: 22px; top: calc(10% - 18px); font-size: 9px; color: #333; letter-spacing: 2px; }
+#pitch-label { position: absolute; right: 22px; top: calc(10% - 18px); font-size: 9px; color: #888; letter-spacing: 2px; }
 #pitch-guide {
   position: absolute; right: 24px; top: 10%; bottom: 10%;
   width: 4px; background: #111; border-radius: 2px;
@@ -71,7 +71,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 #scale-indicator {
   position: absolute; bottom: 100px; left: 50%;
   transform: translateX(-50%);
-  font-size: 10px; color: #333; letter-spacing: 2px;
+  font-size: 10px; color: #888; letter-spacing: 2px;
   transition: color 0.4s;
   white-space: nowrap;
 }
@@ -79,7 +79,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 /* ── Gesture hints ── */
 #hints {
   position: absolute; bottom: 80px; right: 40px;
-  font-size: 9px; color: #888; line-height: 2;
+  font-size: 9px; color: #aaa; line-height: 2;
   text-align: right; letter-spacing: 1px;
 }
 
@@ -91,23 +91,23 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 }
 .gc-btn {
   background: transparent;
-  border: 1px solid #2a2a2a; color: #555;
+  border: 1px solid #555; color: #aaa;
   font-family: monospace; font-size: 10px; letter-spacing: 2px;
   padding: 6px 14px; cursor: pointer; border-radius: 4px;
   transition: border-color 0.2s, color 0.2s;
 }
-.gc-btn:hover { border-color: #888; color: #ccc; }
+.gc-btn:hover { border-color: #bbb; color: #eee; }
 
 /* ── Game: play button ── */
 #game-btn {
   position: absolute; bottom: 28px; left: 40px;
   background: transparent;
-  border: 1px solid #2a2a2a; color: #555;
+  border: 1px solid #555; color: #aaa;
   font-family: monospace; font-size: 10px; letter-spacing: 3px;
   padding: 8px 20px; cursor: pointer; border-radius: 4px;
   transition: border-color 0.2s, color 0.2s; white-space: nowrap;
 }
-#game-btn:hover { border-color: #888; color: #ccc; }
+#game-btn:hover { border-color: #bbb; color: #eee; }
 
 /* ── Game: countdown ── */
 #countdown {
@@ -123,7 +123,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   display: none;
   position: absolute; top: 12px; left: 50%;
   transform: translateX(-50%);
-  font-size: 10px; letter-spacing: 2px; color: #333;
+  font-size: 10px; letter-spacing: 2px; color: #888;
   pointer-events: none; white-space: nowrap;
 }
 #score-ui .sg { color: #00ff78; }
@@ -145,19 +145,19 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 #end-detail { font-size: 10px; color: #444; letter-spacing: 2px; line-height: 2.2; text-align: center; margin-top: 4px; }
 #end-again  {
   margin-top: 20px;
-  background: transparent; border: 1px solid #2a2a2a; color: #555;
+  background: transparent; border: 1px solid #555; color: #aaa;
   font-family: monospace; font-size: 10px; letter-spacing: 3px;
   padding: 10px 28px; cursor: pointer; border-radius: 4px;
   transition: border-color 0.2s, color 0.2s;
 }
-#end-again:hover { border-color: #888; color: #ccc; }
+#end-again:hover { border-color: #bbb; color: #eee; }
 #end-exit {
-  background: transparent; border: 1px solid #2a2a2a; color: #555;
+  background: transparent; border: 1px solid #555; color: #aaa;
   font-family: monospace; font-size: 10px; letter-spacing: 3px;
   padding: 10px 28px; cursor: pointer; border-radius: 4px;
   transition: border-color 0.2s, color 0.2s;
 }
-#end-exit:hover { border-color: #888; color: #ccc; }
+#end-exit:hover { border-color: #bbb; color: #eee; }
 
 /* ── Loading ── */
 #loading {
@@ -211,7 +211,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   </div>
 
   <!-- ── Game UI ── -->
-  <button id="game-btn">▶&nbsp;&nbsp;TWINKLE TWINKLE</button>
+  <button id="game-btn">▶&nbsp;&nbsp;GAME MODE</button>
   <div id="countdown"></div>
 
   <div id="game-controls">
