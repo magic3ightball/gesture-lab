@@ -811,7 +811,7 @@ function processGame(now) {
     else if (note.result === 'great') color = 'rgba(0,255,120,0.92)';
     else if (note.result === 'fair')  color = 'rgba(255,220,0,0.92)';
     else if (note.result === 'bad')   color = 'rgba(255,110,0,0.92)';
-    else                              color = 'rgba(255,50,50,0.30)';
+    else                              color = 'rgba(255,50,50,0.55)';
 
     // Clip left edge at hit zone so notes don't pile up to the left
     const drawX = Math.max(noteX, 0);
@@ -917,9 +917,13 @@ function loop() {
     canvas.height = video.clientHeight;
   }
 
-  // Fade trail
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Fade trail (clear during game for crisp notes, fade in free-play for hand glow)
+  if (GAME.state === 'idle') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 
   drawGuides();
 
