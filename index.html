@@ -139,7 +139,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; z-index: 60; color: #fff;
 }
-#end-song   { font-size: 10px; letter-spacing: 5px; color: #333; }
+#end-song   { font-size: 10px; letter-spacing: 5px; color: #888; }
 #end-score  { font-size: 72px; font-weight: bold; letter-spacing: 4px; margin-top: 4px; }
 #end-grade  { font-size: 16px; letter-spacing: 5px; color: #aaa; }
 #end-detail { font-size: 10px; color: #444; letter-spacing: 2px; line-height: 2.2; text-align: center; margin-top: 4px; }
@@ -158,6 +158,38 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   transition: border-color 0.2s, color 0.2s;
 }
 #end-exit:hover { border-color: #bbb; color: #eee; }
+
+/* ── Song picker ── */
+#song-picker {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.92);
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; z-index: 60;
+}
+#sp-title {
+  font-size: 10px; letter-spacing: 5px; color: #555; margin-bottom: 8px;
+}
+.sp-song-btn {
+  background: transparent;
+  border: 1px solid #444; color: #ccc;
+  font-family: monospace; font-size: 13px; letter-spacing: 2px;
+  padding: 14px 48px; cursor: pointer; border-radius: 4px; width: 320px;
+  text-align: left;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.sp-song-btn:hover { border-color: #aaa; color: #fff; background: rgba(255,255,255,0.04); }
+.sp-song-btn .sp-sub {
+  display: block; font-size: 9px; color: #555; letter-spacing: 3px; margin-top: 4px;
+}
+#sp-cancel {
+  margin-top: 16px;
+  background: transparent; border: 1px solid #2a2a2a; color: #444;
+  font-family: monospace; font-size: 10px; letter-spacing: 3px;
+  padding: 8px 28px; cursor: pointer; border-radius: 4px;
+  transition: border-color 0.2s, color 0.2s;
+}
+#sp-cancel:hover { border-color: #666; color: #888; }
 
 /* ── Loading ── */
 #loading {
@@ -206,6 +238,13 @@ body { background: #000; overflow: hidden; font-family: monospace; }
     👍 &nbsp;thumb up &nbsp;&nbsp;→ triangle
   </div>
 
+  <!-- ── Song picker ── -->
+  <div id="song-picker">
+    <div id="sp-title">SELECT A SONG</div>
+    <div id="sp-list"></div>
+    <button id="sp-cancel">✕&nbsp;&nbsp;CANCEL</button>
+  </div>
+
   <!-- ── Game UI ── -->
   <button id="game-btn">▶&nbsp;&nbsp;GAME MODE</button>
   <div id="countdown"></div>
@@ -223,7 +262,7 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   </div>
 
   <div id="end-screen">
-    <div id="end-song">TWINKLE TWINKLE LITTLE STAR</div>
+    <div id="end-song"></div>
     <div id="end-score">—</div>
     <div id="end-grade">—</div>
     <div id="end-detail"></div>
@@ -271,6 +310,27 @@ const sFair        = document.getElementById('s-fair');
 const sBad         = document.getElementById('s-bad');
 const sMiss        = document.getElementById('s-miss');
 const hintsEl      = document.getElementById('hints');
+const songPickerEl = document.getElementById('song-picker');
+const spListEl     = document.getElementById('sp-list');
+const spCancelEl   = document.getElementById('sp-cancel');
+
+// Build song picker buttons
+SONGS.forEach(song => {
+  const btn = document.createElement('button');
+  btn.className = 'sp-song-btn';
+  btn.innerHTML = `▶&nbsp;&nbsp;${song.title}<span class="sp-sub">${song.sub}</span>`;
+  btn.addEventListener('click', () => {
+    buildSong(song);
+    songPickerEl.style.display = 'none';
+    startCountdown();
+  });
+  spListEl.appendChild(btn);
+});
+
+spCancelEl.addEventListener('click', () => {
+  songPickerEl.style.display = 'none';
+  gameBtnEl.style.display = 'block';
+});
 
 function setThereminUI(visible) {
   const v = visible ? '' : 'none';
@@ -552,33 +612,91 @@ function drawScope() {
 const BPM     = 100;
 const BEAT_MS = 60000 / BPM;   // 600 ms per beat
 
-// Twinkle Twinkle Little Star — [midiNote, durationBeats, tremolo?]
-// Long notes (2–4 beats) are tremolo — hold and vibrate
-const SONG_RAW = [
-  [60,1,0],[60,1,0],[67,1,0],[67,1,0],[69,1,0],[69,1,0],[67,2,1],
-  [65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,1,0],[62,1,0],[60,2,1],
-  [67,1,0],[67,1,0],[65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,2,1],
-  [67,1,0],[67,1,0],[65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,2,1],
-  [60,1,0],[60,1,0],[67,1,0],[67,1,0],[69,1,0],[69,1,0],[67,2,1],
-  [65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,1,0],[62,1,0],[60,4,1],
+// ── Song library — [midiNote, durationBeats, tremolo 0/1] ────────────────────
+const SONGS = [
+  {
+    id: 'twinkle',
+    title: 'Twinkle Twinkle Little Star',
+    sub:   'Classic · mixed notes',
+    bpm:   100,
+    notes: [
+      [60,1,0],[60,1,0],[67,1,0],[67,1,0],[69,1,0],[69,1,0],[67,2,1],
+      [65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,1,0],[62,1,0],[60,2,1],
+      [67,1,0],[67,1,0],[65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,2,1],
+      [67,1,0],[67,1,0],[65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,2,1],
+      [60,1,0],[60,1,0],[67,1,0],[67,1,0],[69,1,0],[69,1,0],[67,2,1],
+      [65,1,0],[65,1,0],[64,1,0],[64,1,0],[62,1,0],[62,1,0],[60,4,1],
+    ],
+  },
+  {
+    id: 'mary',
+    title: 'Mary Had a Little Lamb',
+    sub:   'Easy · short notes',
+    bpm:   100,
+    notes: [
+      [64,1,0],[62,1,0],[60,1,0],[62,1,0],[64,1,0],[64,1,0],[64,2,0],
+      [62,1,0],[62,1,0],[62,2,0],[64,1,0],[67,1,0],[67,2,0],
+      [64,1,0],[62,1,0],[60,1,0],[62,1,0],
+      [64,1,0],[64,1,0],[64,1,0],[64,1,0],
+      [62,1,0],[62,1,0],[64,1,0],[62,1,0],
+      [60,4,1],
+    ],
+  },
+  {
+    id: 'ode',
+    title: 'Ode to Joy',
+    sub:   'Beethoven · medium',
+    bpm:   100,
+    notes: [
+      [64,1,0],[64,1,0],[65,1,0],[67,1,0],[67,1,0],[65,1,0],[64,1,0],[62,1,0],
+      [60,1,0],[60,1,0],[62,1,0],[64,2,0],[62,1,0],[62,2,1],
+      [64,1,0],[64,1,0],[65,1,0],[67,1,0],[67,1,0],[65,1,0],[64,1,0],[62,1,0],
+      [60,1,0],[60,1,0],[62,1,0],[64,2,0],[62,1,0],[60,3,1],
+    ],
+  },
+  {
+    id: 'reverie',
+    title: 'Reverie',
+    sub:   'Tremolo only · slow',
+    bpm:   65,
+    notes: [
+      [60,3,1],[64,3,1],[67,3,1],[72,3,1],
+      [69,3,1],[67,3,1],[64,3,1],
+      [60,3,1],[62,3,1],[65,3,1],[69,3,1],
+      [67,3,1],[64,4,1],[60,4,1],
+    ],
+  },
 ];
 
-let _t = 0;
-const SONG_NOTES = SONG_RAW.map(([midi, beats, trem]) => {
-  const note = {
-    midi,
-    tremolo:   !!trem,
-    timeStart: _t * BEAT_MS,
-    timeDur:   beats * BEAT_MS,
-    yNorm:     VPAD + (DIATONIC_MIDI.indexOf(midi) / 7) * (1 - 2 * VPAD),
-    result:    null,               // null | 'great' | 'fair' | 'bad' | 'miss'
-    scored:    false,
-  };
-  _t += beats;
-  return note;
-});
-const SONG_DURATION_MS = _t * BEAT_MS;
-const SONG_TOTAL       = SONG_NOTES.length;
+// ── Active song state (rebuilt when a song is selected) ───────────────────────
+let ACTIVE_SONG      = SONGS[0];
+let BEAT_MS          = 60000 / ACTIVE_SONG.bpm;
+let SONG_NOTES       = [];
+let SONG_DURATION_MS = 0;
+let SONG_TOTAL       = 0;
+
+function buildSong(song) {
+  ACTIVE_SONG = song;
+  BEAT_MS     = 60000 / song.bpm;
+  let _t = 0;
+  SONG_NOTES = song.notes.map(([midi, beats, trem]) => {
+    const note = {
+      midi,
+      tremolo:   !!trem,
+      timeStart: _t * BEAT_MS,
+      timeDur:   beats * BEAT_MS,
+      yNorm:     VPAD + (DIATONIC_MIDI.indexOf(midi) / 7) * (1 - 2 * VPAD),
+      result:    null,
+      scored:    false,
+    };
+    _t += beats;
+    return note;
+  });
+  SONG_DURATION_MS = _t * BEAT_MS;
+  SONG_TOTAL       = SONG_NOTES.length;
+}
+
+buildSong(SONGS[0]);
 
 // ── Game constants ────────────────────────────────────────────────────────────
 let HIT_X             = 0;   // set each frame to canvas.width / 2
@@ -679,6 +797,7 @@ function finishGame() {
     pct >= 70 ? 'NICE PLAYING!' :
     pct >= 50 ? 'KEEP PRACTICING' : 'NEED MORE PRACTICE';
 
+  document.getElementById('end-song').textContent = ACTIVE_SONG.title.toUpperCase();
   endScoreEl.textContent = `${hits} / ${SONG_TOTAL}`;
   endGradeEl.textContent = grade;
   endDetailEl.innerHTML  =
@@ -697,8 +816,11 @@ function updateScoreUI() {
   sMiss.textContent  = GAME.tally.miss;
 }
 
-gameBtnEl.addEventListener('click',  startCountdown);
-endAgainEl.addEventListener('click', startCountdown);
+gameBtnEl.addEventListener('click', () => {
+  gameBtnEl.style.display    = 'none';
+  songPickerEl.style.display = 'flex';
+});
+endAgainEl.addEventListener('click', startCountdown);  // replay same song
 endExitEl.addEventListener('click',  exitGame);
 pauseBtnEl.addEventListener('click', togglePause);
 exitBtnEl.addEventListener('click',  exitGame);
