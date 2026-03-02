@@ -30,8 +30,8 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   pointer-events: none;
 }
 #note-name       { font-size: 96px; color: #fff; font-weight: bold; letter-spacing: 6px; line-height: 1; }
-#freq-display    { font-size: 15px; color: #888; margin-top: 6px; letter-spacing: 3px; }
-#waveform-display{ font-size: 11px; color: #888; margin-top: 10px; letter-spacing: 3px; }
+#freq-display    { font-size: 15px; color: #888; margin-top: 6px; letter-spacing: 3px; background: rgba(0,0,0,0.45); padding: 2px 10px; border-radius: 4px; }
+#waveform-display{ font-size: 11px; color: #888; margin-top: 10px; letter-spacing: 3px; background: rgba(0,0,0,0.45); padding: 2px 10px; border-radius: 4px; }
 
 /* ── Left: volume bar ── */
 #vol-label { position: absolute; left: 22px; top: calc(10% - 18px); font-size: 9px; color: #888; letter-spacing: 2px; }
@@ -202,7 +202,6 @@ body { background: #000; overflow: hidden; font-family: monospace; }
   <div id="hints">
     RIGHT HAND → pitch<br>
     LEFT HAND &nbsp;→ volume<br>
-    😊 SMILE &nbsp;&nbsp;→ major scale<br>
     <br>
     🖐 &nbsp;open palm &nbsp;→ sine<br>
     ✌️ &nbsp;victory &nbsp;&nbsp;&nbsp;→ sawtooth<br>
