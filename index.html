@@ -807,22 +807,23 @@ function processGame(now) {
     const drawX = Math.max(noteX, 0);
     const drawW = noteW - Math.max(0, 0 - noteX);
 
-    ctx.fillStyle = color;
-    ctx.fillRect(drawX, noteY - NOTE_H / 2, drawW, NOTE_H);
-
-    // Wavy line overlay for tremolo notes
     if (note.tremolo) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,0.70)';
-      ctx.lineWidth = 1.5;
+      const amp = 4, waveLen = 14, phase = Date.now() * 0.004;
+      ctx.fillStyle = color;
       ctx.beginPath();
-      const amp = 3.5, waveLen = 10;
-      for (let px = drawX; px <= drawX + drawW; px += 2) {
-        const wy = noteY + Math.sin((px - drawX) / waveLen * Math.PI * 2) * amp;
+      for (let px = drawX; px <= drawX + drawW; px += 3) {
+        const wy = noteY - NOTE_H / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
         px === drawX ? ctx.moveTo(px, wy) : ctx.lineTo(px, wy);
       }
-      ctx.stroke();
-      ctx.restore();
+      for (let px = drawX + drawW; px >= drawX; px -= 3) {
+        const wy = noteY + NOTE_H / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
+        ctx.lineTo(px, wy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = color;
+      ctx.fillRect(drawX, noteY - NOTE_H / 2, drawW, NOTE_H);
     }
 
     // Note name inside bar
