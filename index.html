@@ -329,7 +329,7 @@ const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const PENTATONIC  = [0, 2, 4, 7, 9];
 
 function handYToFreq(y) {
-  let midi = 84 - y * 48;
+  let midi = 72 - y * 24;  // C3 (48) → C5 (72), two octaves
   if (snapToScale) {
     const octave   = Math.floor(midi / 12);
     const semitone = midi % 12;
@@ -347,7 +347,8 @@ function freqToNoteName(freq) {
 }
 
 function freqToHue(freq) {
-  const t = Math.log2(freq / 65) / Math.log2(1047 / 65);
+  // C3 (130.8 Hz) → C5 (523.3 Hz), two octaves
+  const t = Math.log2(freq / 130.8) / Math.log2(523.3 / 130.8);
   return Math.max(0, Math.min(1, t)) * 270;
 }
 
@@ -428,21 +429,13 @@ function onFaceUpdate(landmarks, blendshapes) {
 
 // ── Pitch + volume guide ──────────────────────────────────────────────────────
 const GUIDE_NOTES = [
-  { midi: 84, label: 'C6', type: 'octave' },
-  { midi: 79, label: 'G5', type: 'fifth'  },
-  { midi: 76, label: 'E5', type: 'third'  },
   { midi: 72, label: 'C5', type: 'octave' },
-  { midi: 69, label: 'A4', type: 'sixth'  },
   { midi: 67, label: 'G4', type: 'fifth'  },
   { midi: 64, label: 'E4', type: 'third'  },
   { midi: 60, label: 'C4', type: 'middle' },
-  { midi: 57, label: 'A3', type: 'sixth'  },
   { midi: 55, label: 'G3', type: 'fifth'  },
   { midi: 52, label: 'E3', type: 'third'  },
   { midi: 48, label: 'C3', type: 'octave' },
-  { midi: 43, label: 'G2', type: 'fifth'  },
-  { midi: 40, label: 'E2', type: 'third'  },
-  { midi: 36, label: 'C2', type: 'octave' },
 ];
 const PENTA_CLASSES = new Set([0, 2, 4, 7, 9]);
 
@@ -450,7 +443,7 @@ function drawGuides() {
   const W = canvas.width, H = canvas.height, PAD = 48;
   ctx.save();
   for (const { midi, label, type } of GUIDE_NOTES) {
-    const y       = ((84 - midi) / 48) * H;
+    const y       = ((72 - midi) / 24) * H;
     const hue     = freqToHue(440 * Math.pow(2, (midi - 69) / 12));
     const isPenta = PENTA_CLASSES.has(((midi % 12) + 12) % 12);
     const isC     = (midi % 12) === 0;
@@ -549,7 +542,7 @@ const SONG_NOTES = SONG_RAW.map(([midi, beats]) => {
     midi,
     timeStart: _t * BEAT_MS,
     timeDur:   beats * BEAT_MS,
-    yNorm:     (84 - midi) / 48,   // normalized Y — matches theremin mapping
+    yNorm:     (72 - midi) / 24,   // normalized Y — matches theremin mapping
     result:    null,               // null | 'great' | 'fair' | 'bad' | 'miss'
     scored:    false,
   };
