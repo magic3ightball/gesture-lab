@@ -917,13 +917,7 @@ function loop() {
     canvas.height = video.clientHeight;
   }
 
-  // Fade trail (clear during game for crisp notes, fade in free-play for hand glow)
-  if (GAME.state === 'idle') {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  } else {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   drawGuides();
 
