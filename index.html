@@ -553,7 +553,7 @@ const SONG_DURATION_MS = _t * BEAT_MS;
 const SONG_TOTAL       = SONG_NOTES.length;
 
 // ── Game constants ────────────────────────────────────────────────────────────
-const HIT_X           = 140;   // px — hit zone x position
+const HIT_X           = Math.round(window.innerWidth / 2);   // px — hit zone x position
 const LOOK_AHEAD      = 2500;  // ms — how early notes appear on screen
 const COUNTDOWN_MS    = 4000;  // ms — total countdown duration (3-2-1-GO)
 const WINDOW_MS  = 280;   // ±ms hit detection window around note.timeStart
