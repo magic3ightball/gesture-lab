@@ -330,6 +330,7 @@ const PENTATONIC  = [0, 2, 4, 7, 9];
 
 function handYToFreq(y) {
   let midi = 72 - y * 12;  // C4 (60) → C5 (72), one octave
+  midi = Math.max(60, Math.min(72, midi));  // clamp to C4–C5
   if (snapToScale) {
     const octave   = Math.floor(midi / 12);
     const semitone = midi % 12;
