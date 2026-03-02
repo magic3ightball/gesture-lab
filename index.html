@@ -274,6 +274,15 @@ const sGreat       = document.getElementById('s-great');
 const sFair        = document.getElementById('s-fair');
 const sBad         = document.getElementById('s-bad');
 const sMiss        = document.getElementById('s-miss');
+const hintsEl      = document.getElementById('hints');
+
+function setThereminUI(visible) {
+  const v = visible ? '' : 'none';
+  scope.style.display    = v;
+  scaleEl.style.display  = v;
+  waveEl.style.display   = v;
+  hintsEl.style.display  = v;
+}
 
 // ── Web Audio ─────────────────────────────────────────────────────────────────
 let audioCtx, oscillator, gainNode, analyser;
@@ -605,6 +614,7 @@ function startCountdown() {
   endScreenEl.style.display = 'none';
   gameBtnEl.style.display   = 'none';
   scoreUiEl.style.display   = 'none';
+  setThereminUI(false);
   GAME.state     = 'countdown';
   GAME.startTime = Date.now() + COUNTDOWN_MS;  // elapsed=0 exactly when GO fires
 
@@ -641,6 +651,7 @@ function exitGame() {
   endScreenEl.style.display  = 'none';
   gameCtrlEl.style.display   = 'none';
   gameBtnEl.style.display    = 'block';
+  setThereminUI(true);
   for (const n of SONG_NOTES) { n.result = null; n.scored = false; }
   GAME.tally = { great: 0, fair: 0, bad: 0, miss: 0 };
   ratingPops.length = 0;
