@@ -36,14 +36,14 @@ body { background: #000; overflow: hidden; font-family: monospace; }
 /* ── Left: volume bar ── */
 #vol-label { position: absolute; left: 22px; top: calc(10% - 18px); font-size: 9px; color: #888; letter-spacing: 2px; }
 #vol-bar-bg {
-  position: absolute; left: 24px; top: 10%; bottom: 10%;
-  width: 4px; background: #111; border-radius: 2px;
+  position: absolute; left: 22px; top: 10%; bottom: 10%;
+  width: 8px; background: #222; border-radius: 4px;
 }
 #vol-bar-fill {
   position: absolute; bottom: 0; left: 0; right: 0;
   background: linear-gradient(to top, #00ff99, #00ddff);
-  border-radius: 2px; height: 0%;
-  box-shadow: 0 0 8px #00ff99;
+  border-radius: 4px; height: 0%;
+  box-shadow: 0 0 12px #00ff99, 0 0 24px rgba(0,255,153,0.4);
   transition: height 0.05s;
 }
 
