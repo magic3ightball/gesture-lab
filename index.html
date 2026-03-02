@@ -808,15 +808,15 @@ function processGame(now) {
     const drawW = noteW - Math.max(0, 0 - noteX);
 
     if (note.tremolo) {
-      const amp = 8, waveLen = 56, phase = 0;
+      const amp = 8, waveLen = 56, phase = 0, tH = NOTE_H * 0.6;
       ctx.fillStyle = color;
       ctx.beginPath();
       for (let px = drawX; px <= drawX + drawW; px += 3) {
-        const wy = noteY - NOTE_H / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
+        const wy = noteY - tH / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
         px === drawX ? ctx.moveTo(px, wy) : ctx.lineTo(px, wy);
       }
       for (let px = drawX + drawW; px >= drawX; px -= 3) {
-        const wy = noteY + NOTE_H / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
+        const wy = noteY + tH / 2 + Math.sin((px - drawX) / waveLen * Math.PI * 2 + phase) * amp;
         ctx.lineTo(px, wy);
       }
       ctx.closePath();
