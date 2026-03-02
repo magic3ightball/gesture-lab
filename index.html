@@ -583,7 +583,7 @@ function startCountdown() {
   gameBtnEl.style.display   = 'none';
   scoreUiEl.style.display   = 'none';
   GAME.state     = 'countdown';
-  GAME.startTime = Date.now() + COUNTDOWN_MS - LOOK_AHEAD;
+  GAME.startTime = Date.now() + COUNTDOWN_MS;  // elapsed=0 exactly when GO fires
 
   for (const n of SONG_NOTES) { n.result = null; n.scored = false; }
   GAME.tally = { great: 0, fair: 0, bad: 0, miss: 0 };
@@ -603,8 +603,7 @@ function startCountdown() {
     } else {
       clearInterval(iv);
       countdownEl.style.display = 'none';
-      GAME.state     = 'playing';
-      GAME.startTime = Date.now() - LOOK_AHEAD;
+      GAME.state = 'playing';
       pauseBtnEl.textContent = '⏸\u00a0 PAUSE';
       scoreUiEl.style.display   = 'block';
       gameCtrlEl.style.display  = 'flex';
@@ -681,7 +680,7 @@ function processGame(now) {
   // During countdown: freeze notes at their "about to appear" positions (no scrolling, no scoring)
   // During playing: use real elapsed time
   HIT_X = Math.round(canvas.width / 2);
-  const elapsed = GAME.state === 'countdown' ? -LOOK_AHEAD : now - GAME.startTime;
+  const elapsed = now - GAME.startTime;  // same formula for countdown and playing
   const scrollSpeed = (canvas.width - HIT_X) / LOOK_AHEAD;  // px/ms
 
   // Song end check
